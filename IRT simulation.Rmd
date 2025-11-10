@@ -1,0 +1,125 @@
+---
+title: "Untitled"
+author: "Ben Attaway"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE)
+
+library(mirt)
+# devtools::install_github("masurp/ggmirt")
+library(ggmirt)
+library(mice)
+library(tidyverse)
+library(gt)
+library(SimDesign)
+
+set.seed(1701)
+```
+NAEP typically aims for a discrimination parameter `a` between 0 and 2 and difficulty `b` between -3 and 3. Guessing probability `c` naturally needs to be between 0 and 1, but realistically we'd expect it to be on the low end of that range (for a five-option question I'd expect 0.2). (https://nces.ed.gov/nationsreportcard/tdw/analysis/scaling_irt.aspx)
+
+```{r}
+# Adapted from https://philchalmers.github.io/SimDesign/html/04-Auxillary_parameter_recovery.html
+Design <- createDesign(n_anchor = c(5, 11, 15, 20), # setting the anchor to the same number as test items should mean everyone completes everything 
+                       n_test = c(20),
+                       type = c('2PL'), # Leaving out 3PL for now because I still get unstable models even with just 2
+                       groupdiff = c(0, 0.4), # Thought it would be good to see how well we could assess the size of a mean difference
+                       plausible_draws = c(10, 20), # PISA provides 10 plausible values, NAEP provides 20, so those seem like good #s to pick
+                       n_students_total = 560)
+
+make_missing <- function(full_responses, n_anchor, n_test, n_groups) {
+  if (n_groups == 1) {
+    return(full_responses)
+  }
+  else {
+    responses_with_missing <- matrix(nrow=nrow(full_responses), ncol=ncol(full_responses))
+    colnames(responses_with_missing) <- colnames(full_responses)
+    responses_with_missing[,1:n_anchor] <- full_responses[1:n_anchor]
+    for (i in 0:(n_groups - 1)) {
+      row_range <- (1 + i*n_students_total/n_groups):((i+1)*n_students_total/n_groups)
+      col_range <- (n_anchor+1+i*(n_test-n_anchor)):(n_anchor+(i+1)*(n_test-n_anchor))
+      responses_with_missing[row_range, col_range] <- full_responses[row_range, col_range]
+    }
+    return(responses_with_missing)
+  }
+}
+
+Generate <- function(condition, fixed_objects = NULL) {
+    Attach(condition) # attaches condition names for direct reference
+    
+    n_items = 155
+
+    a_values <- matrix(rlnorm(n_items, 0, .25)) 
+    b_values <- rnorm(n_items, 0, 1)
+
+    intercepts <- numeric(n_items)
+    for(i in 1:n_items) {
+       intercepts[i] <- traditional2mirt(c('a'=a_values[i], 'b'=b_values[i], 'g'=ifelse(type=='2PL', 0, .2), 'u'=1),
+                                 cls=type)[2]
+    }
+
+    #d <- matrix(rnorm(n_items, 0, .5))
+    n_groups <- ifelse(n_anchor < n_test, (n_items - n_anchor)/(n_test-n_anchor), 1)
+    Thetas <- matrix(scale(rnorm(n_students_total)) - groupdiff/2)
+    Theta2 <- matrix(scale(rnorm(n_students_total)) + groupdiff/2)
+
+    dat1 <- simdata(a=a_values, d=intercepts, Theta=Theta1, itemtype = type) |> make_missing(n_anchor, n_test, n_groups)
+    dat2 <- simdata(a=a_values, d=intercepts, Theta=Theta2, itemtype = type) |> make_missing(n_anchor, n_test, n_groups)
+    
+    covdata <- data.frame(group = c(rep("Group 1", n_students_total), rep("Group 2", n_students_total)))
+    
+    ret <- list(dat=rbind(dat1, dat2), covdata=covdata, parameters=list(Thetas=rbind(Theta1, Theta2), a=a, d=intercepts))
+    ret
+}
+
+Analyse <- function(condition, dat, fixed_objects = NULL) {
+    Attach(condition)
+    # extract
+    data <- dat$dat
+    covdata <- dat$covdata
+    parameters <- dat$parameters
+    n_students_total <- nrow(data)/2
+
+    mod <- mirt(data, 1, itemtype=type, covdata=covdata, formula = ~ group, SE=T)
+    
+    pred_theta <- fscores(mod, full.scores=TRUE, plausible.draws = plausible_draws, use_dentype_estimate=T)
+    pred_theta1 <- lapply(pred_theta, function(x) x[1:n_students_total])
+    diff_Theta1 <- unlist(pred_theta1, use.names=F) - unlist(parameters$Thetas, use.names=F)[1:n_students_total]
+    
+    pred_theta2 <- lapply(pred_theta, function(x) x[(n_students_total+1):(2*n_stubidents_total)])
+    diff_Theta2 <- unlist(pred_theta2, use.names=F) - unlist(parameters$Thetas, use.names=F)[(n_students_total+1):(2*n_students_total)]
+    
+    pvmods <- lapply(pred_theta, function(x, covdata) lm(x ~ covdata$group), covdata=covdata)
+    so <- lapply(pvmods, summary)
+    par <- lapply(so, function(x) x$coefficients[, 'Estimate'])
+    SEpar <- lapply(so, function(x) x$coefficients[, 'Std. Error'])
+    pooled <- averageMI(par, SEpar)
+    
+    # return list (also with true Theta's)
+    ret <- list(Thetas=parameters$Thetas, par_coef = pooled[2,"par"], par_SE = pooled[2, "SEpar"],
+                diff_Theta = c(diff_Theta1, diff_Theta2), pred_theta=pred_theta)
+    ret
+}
+Summarise <- function(condition, results, fixed_objects = NULL) {
+  #results <<- results
+  index <- 1:length(results)
+  # for ease of calculations, find the difference between the observed and population matrices
+  bias_Theta <- bias(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_Theta,
+                   res=results)))
+  RMSE_Theta <- RMSE(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_Theta,
+                   res=results)))
+  mean_groupdiff <- mean(do.call(c, lapply(index, function(ind, res) res[[ind]]$par_coef,
+                   res=results)))
+  SE_groupdiff <- mean(do.call(c, lapply(index, function(ind, res) res[[ind]]$par_SE,
+                   res=results)))
+  ret <- c(bias_Theta=bias_Theta, RMSE_Theta = RMSE_Theta, mean_groupdiff=mean_groupdiff, SE_groupdiff=SE_groupdiff)
+  ret
+}
+
+res <- runSimulation(Design, replications = 5, parallel = T, packages = 'mirt',
+                     generate=Generate, analyse=Analyse, summarise=Summarise)
+```
+
+
