@@ -20,27 +20,38 @@ set.seed(1701)
 ```
 NAEP typically aims for a discrimination parameter `a` between 0 and 2 and difficulty `b` between -3 and 3. Guessing probability `c` naturally needs to be between 0 and 1, but realistically we'd expect it to be on the low end of that range (for a five-option question I'd expect 0.2). (https://nces.ed.gov/nationsreportcard/tdw/analysis/scaling_irt.aspx)
 
+Prof. Verkuilen suggested fixing the total test length at 30 or 40 items (so the item bank needs to be longer for a shorter anchor length), and the number of students at 1000 (didn't say per version or total, so I'll do total for now)
+
 ```{r}
 # Adapted from https://philchalmers.github.io/SimDesign/html/04-Auxillary_parameter_recovery.html
-Design <- createDesign(n_anchor = c(5, 11, 15, 20), # setting the anchor to the same number as test items should mean everyone completes everything 
-                       n_test = c(20),
-                       type = c('2PL'), # Leaving out 3PL for now because I still get unstable models even with just 2
+Design <- createDesign(n_anchor = c(5, 10, 15, 20, 40), # setting the anchor to the same number as test items should mean everyone completes everything 
+                       n_test_questions = c(40),
+                       n_test_versions = c(2),
+                       type = c('2PL'), # Also try 3PL
                        groupdiff = c(0, 0.4), # Thought it would be good to see how well we could assess the size of a mean difference
-                       plausible_draws = c(10, 20), # PISA provides 10 plausible values, NAEP provides 20, so those seem like good #s to pick
-                       n_students_total = 560)
+                       plausible_draws = c(10), # PISA provides 10 plausible values, NAEP provides 20, so those seem like good #s to pick
+                       n_students_total = 1000)
 
-make_missing <- function(full_responses, n_anchor, n_test, n_groups) {
-  if (n_groups == 1) {
+make_missing <- function(full_responses, n_anchor, n_test_questions, n_groups, b_values) {
+  if (n_anchor == n_test_questions) {
     return(full_responses)
   }
   else {
+    # Prof. Verkuilen said to start we should use medium-difficulty items as the anchors, so I'm passing the difficulty parameters and choosing the items
+    # with difficulty closest to 0 (the mean value)
+    b_with_index <- data.frame(b = b_values, index = 1:length(b_values)) |>
+      arrange(abs(b))
+    anchor_values <- b_with_index |>
+      slice_head(n=n_anchor) |>
+      pull(index)
     responses_with_missing <- matrix(nrow=nrow(full_responses), ncol=ncol(full_responses))
     colnames(responses_with_missing) <- colnames(full_responses)
-    responses_with_missing[,1:n_anchor] <- full_responses[1:n_anchor]
+    responses_with_missing[,1:n_anchor] <- full_responses[,anchor_values]
+    full_responses <- full_responses[, -anchor_values]
     for (i in 0:(n_groups - 1)) {
-      row_range <- (1 + i*n_students_total/n_groups):((i+1)*n_students_total/n_groups)
-      col_range <- (n_anchor+1+i*(n_test-n_anchor)):(n_anchor+(i+1)*(n_test-n_anchor))
-      responses_with_missing[row_range, col_range] <- full_responses[row_range, col_range]
+      row_range <- (1 + i*nrow(full_responses)/n_groups):((i+1)*nrow(full_responses)/n_groups)
+      col_range <- (1+i*(n_test_questions-n_anchor)):((i+1)*(n_test_questions-n_anchor))
+      responses_with_missing[row_range, n_anchor+col_range] <- full_responses[row_range, col_range]
     }
     return(responses_with_missing)
   }
@@ -49,7 +60,7 @@ make_missing <- function(full_responses, n_anchor, n_test, n_groups) {
 Generate <- function(condition, fixed_objects = NULL) {
     Attach(condition) # attaches condition names for direct reference
     
-    n_items = 155
+    n_items = n_anchor + n_test_versions*(n_test_questions-n_anchor)
 
     a_values <- matrix(rlnorm(n_items, 0, .25)) 
     b_values <- rnorm(n_items, 0, 1)
@@ -59,18 +70,19 @@ Generate <- function(condition, fixed_objects = NULL) {
        intercepts[i] <- traditional2mirt(c('a'=a_values[i], 'b'=b_values[i], 'g'=ifelse(type=='2PL', 0, .2), 'u'=1),
                                  cls=type)[2]
     }
-
-    #d <- matrix(rnorm(n_items, 0, .5))
-    n_groups <- ifelse(n_anchor < n_test, (n_items - n_anchor)/(n_test-n_anchor), 1)
-    Thetas <- matrix(scale(rnorm(n_students_total)) - groupdiff/2)
-    Theta2 <- matrix(scale(rnorm(n_students_total)) + groupdiff/2)
-
-    dat1 <- simdata(a=a_values, d=intercepts, Theta=Theta1, itemtype = type) |> make_missing(n_anchor, n_test, n_groups)
-    dat2 <- simdata(a=a_values, d=intercepts, Theta=Theta2, itemtype = type) |> make_missing(n_anchor, n_test, n_groups)
     
-    covdata <- data.frame(group = c(rep("Group 1", n_students_total), rep("Group 2", n_students_total)))
+    # Wanted to make two groups of students with different ability distributions to look at power to detect differences
+    # based on plausible values (which we can get after fitting a model)
+    # But it would be simpler to leave this out and just have one group of students
+    Theta1 <- matrix(scale(rnorm(n_students_total/2)) - groupdiff/2)
+    Theta2 <- matrix(scale(rnorm(n_students_total/2)) + groupdiff/2)
+
+    dat1 <- simdata(a=a_values, d=intercepts, Theta=Theta1, itemtype = type) |> make_missing(n_anchor, n_test_questions, n_test_versions, b_values)
+    dat2 <- simdata(a=a_values, d=intercepts, Theta=Theta2, itemtype = type) |> make_missing(n_anchor, n_test_questions, n_test_versions, b_values)
     
-    ret <- list(dat=rbind(dat1, dat2), covdata=covdata, parameters=list(Thetas=rbind(Theta1, Theta2), a=a, d=intercepts))
+    covdata <- data.frame(group = c(rep("Group 1", n_students_total/2), rep("Group 2", n_students_total/2)))
+    
+    ret <- list(dat=rbind(dat1, dat2), covdata=covdata, parameters=list(Thetas=rbind(Theta1, Theta2), a=a_values, d=intercepts))
     ret
 }
 
@@ -88,7 +100,7 @@ Analyse <- function(condition, dat, fixed_objects = NULL) {
     pred_theta1 <- lapply(pred_theta, function(x) x[1:n_students_total])
     diff_Theta1 <- unlist(pred_theta1, use.names=F) - unlist(parameters$Thetas, use.names=F)[1:n_students_total]
     
-    pred_theta2 <- lapply(pred_theta, function(x) x[(n_students_total+1):(2*n_stubidents_total)])
+    pred_theta2 <- lapply(pred_theta, function(x) x[(n_students_total+1):(2*n_students_total)])
     diff_Theta2 <- unlist(pred_theta2, use.names=F) - unlist(parameters$Thetas, use.names=F)[(n_students_total+1):(2*n_students_total)]
     
     pvmods <- lapply(pred_theta, function(x, covdata) lm(x ~ covdata$group), covdata=covdata)
@@ -99,7 +111,7 @@ Analyse <- function(condition, dat, fixed_objects = NULL) {
     
     # return list (also with true Theta's)
     ret <- list(Thetas=parameters$Thetas, par_coef = pooled[2,"par"], par_SE = pooled[2, "SEpar"],
-                diff_Theta = c(diff_Theta1, diff_Theta2), pred_theta=pred_theta)
+                diff_Theta = c(diff_Theta1, diff_Theta2), pred_theta=pred_theta, model_params = coef(mod, printSE=T))
     ret
 }
 Summarise <- function(condition, results, fixed_objects = NULL) {
@@ -114,6 +126,9 @@ Summarise <- function(condition, results, fixed_objects = NULL) {
                    res=results)))
   SE_groupdiff <- mean(do.call(c, lapply(index, function(ind, res) res[[ind]]$par_SE,
                    res=results)))
+  
+  # I'm more interested in predicting ability (theta) but a lot of papers do focus more on parameter retrieval so I would like to at
+  # least report the mean and RMSE for those as well. Don't have time for that tonight so TODO
   ret <- c(bias_Theta=bias_Theta, RMSE_Theta = RMSE_Theta, mean_groupdiff=mean_groupdiff, SE_groupdiff=SE_groupdiff)
   ret
 }
