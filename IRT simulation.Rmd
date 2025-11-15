@@ -24,13 +24,13 @@ Prof. Verkuilen suggested fixing the total test length at 30 or 40 items (so the
 
 ```{r}
 # Adapted from https://philchalmers.github.io/SimDesign/html/04-Auxillary_parameter_recovery.html
-Design <- createDesign(n_anchor = c(5, 10, 15, 20, 40), # setting the anchor to the same number as test items should mean everyone completes everything 
+Design <- createDesign(n_anchor = c(3, 5, 10, 15, 20, 40), # setting the anchor to the same number as test items should mean everyone completes everything 
                        n_test_questions = c(40),
                        n_test_versions = c(2),
                        type = c('2PL'), # Also try 3PL
                        groupdiff = c(0, 0.4), # Thought it would be good to see how well we could assess the size of a mean difference
                        plausible_draws = c(10), # PISA provides 10 plausible values, NAEP provides 20, so those seem like good #s to pick
-                       n_students_total = 1000)
+                       n_students_total = 1024)
 
 make_missing <- function(full_responses, n_anchor, n_test_questions, n_groups, b_values) {
   if (n_anchor == n_test_questions) {
@@ -82,7 +82,7 @@ Generate <- function(condition, fixed_objects = NULL) {
     
     covdata <- data.frame(group = c(rep("Group 1", n_students_total/2), rep("Group 2", n_students_total/2)))
     
-    ret <- list(dat=rbind(dat1, dat2), covdata=covdata, parameters=list(Thetas=rbind(Theta1, Theta2), a=a_values, d=intercepts))
+    ret <- list(dat=rbind(dat1, dat2), covdata=covdata, parameters=list(Thetas=rbind(Theta1, Theta2), a=a_values, d=intercepts, groupdiff=groupdiff))
     ret
 }
 
@@ -92,30 +92,46 @@ Analyse <- function(condition, dat, fixed_objects = NULL) {
     data <- dat$dat
     covdata <- dat$covdata
     parameters <- dat$parameters
-    n_students_total <- nrow(data)/2
+    n_students_group <- nrow(data)/2
 
-    mod <- mirt(data, 1, itemtype=type, covdata=covdata, formula = ~ group, SE=T)
+    mod <- mirt(data, 1, itemtype=type, covdata=covdata, SE=T)
+    if(!extract.mirt(mod, 'converged')) {
+      print("Did not converge")
+      stop('mirt did not converge')
+    } else {
+      print("Fit IRT model")
+    }
     
-    pred_theta <- fscores(mod, full.scores=TRUE, plausible.draws = plausible_draws, use_dentype_estimate=T)
-    pred_theta1 <- lapply(pred_theta, function(x) x[1:n_students_total])
-    diff_Theta1 <- unlist(pred_theta1, use.names=F) - unlist(parameters$Thetas, use.names=F)[1:n_students_total]
+    pred_theta <- fscores(mod, full.scores=TRUE, plausible.draws = plausible_draws)
+    pred_theta1 <- lapply(pred_theta, function(x) x[1:n_students_group])
+    diff_Theta1 <- unlist(pred_theta1, use.names=F) - unlist(parameters$Thetas, use.names=F)[1:n_students_group]
     
-    pred_theta2 <- lapply(pred_theta, function(x) x[(n_students_total+1):(2*n_students_total)])
-    diff_Theta2 <- unlist(pred_theta2, use.names=F) - unlist(parameters$Thetas, use.names=F)[(n_students_total+1):(2*n_students_total)]
+    pred_theta2 <- lapply(pred_theta, function(x) x[(n_students_group+1):(2*n_students_group)])
+    diff_Theta2 <- unlist(pred_theta2, use.names=F) - unlist(parameters$Thetas, use.names=F)[(n_students_group+1):(2*n_students_group)]
     
     pvmods <- lapply(pred_theta, function(x, covdata) lm(x ~ covdata$group), covdata=covdata)
     so <- lapply(pvmods, summary)
     par <- lapply(so, function(x) x$coefficients[, 'Estimate'])
     SEpar <- lapply(so, function(x) x$coefficients[, 'Std. Error'])
     pooled <- averageMI(par, SEpar)
-    
-    # return list (also with true Theta's)
-    ret <- list(Thetas=parameters$Thetas, par_coef = pooled[2,"par"], par_SE = pooled[2, "SEpar"],
-                diff_Theta = c(diff_Theta1, diff_Theta2), pred_theta=pred_theta, model_params = coef(mod, printSE=T))
+    model_params <- lapply(1:length(parameters$d), function(i) c(mod@ParObjects$pars[[i]]@par, mod@ParObjects$pars[[i]]@SEpar))
+    # Don't need u estimates since not testing 4PL model
+    model_params_df <- data.frame(matrix(unlist(model_params), byrow=T, nrow=length(model_params)))[,c(1:3, 5:7)]
+    colnames(model_params_df) <- c("a_est", "d_est", "g_est", "a_SE", "d_SE", "g_SE")
+    diff_a = model_params_df[,1] - parameters$a
+    diff_d = model_params_df[,2] - parameters$d
+    diff_g = ifelse(type=="2PL", rep(0, length(parameters$d)), model_params_df[,3] - parameters$g)
+
+    # return list
+    ret <- list(true_parameters=parameters, par_coef = pooled[2,"par"], par_SE = pooled[2, "SEpar"],
+                diff_Theta = c(diff_Theta1, diff_Theta2), pred_theta=pred_theta,
+                model_params_df = model_params_df,
+                diff_a = diff_a, diff_d = diff_d,
+                diff_g = diff_g, groupdiff = pooled[2,"par"] - dat$parameters$groupdiff)
     ret
 }
 Summarise <- function(condition, results, fixed_objects = NULL) {
-  #results <<- results
+  print("summarize")
   index <- 1:length(results)
   # for ease of calculations, find the difference between the observed and population matrices
   bias_Theta <- bias(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_Theta,
@@ -126,15 +142,43 @@ Summarise <- function(condition, results, fixed_objects = NULL) {
                    res=results)))
   SE_groupdiff <- mean(do.call(c, lapply(index, function(ind, res) res[[ind]]$par_SE,
                    res=results)))
+
+  bias_groupdiff <- bias(do.call(c, lapply(index, function(ind, res) res[[ind]]$groupdiff,
+                   res=results)))
+  RMSE_groupdiff <- RMSE(do.call(c, lapply(index, function(ind, res) res[[ind]]$groupdiff,
+                   res=results)))
+
+  bias_a <- bias(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_a,
+                   res=results)))
+  RMSE_a <- RMSE(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_a,
+                   res=results)))
+  SE_a <- mean(do.call(c, lapply(index, function(ind, res) res[[ind]]$model_params_df$a_SE,
+                    res=results)))
+
+  bias_d <- bias(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_d,
+                   res=results)))
+  RMSE_d <- RMSE(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_d,
+                   res=results)))
+  SE_d <- mean(do.call(c, lapply(index, function(ind, res) res[[ind]]$model_params_df$d_SE,
+                    res=results)))
+
+  bias_g <- bias(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_g,
+                   res=results)))
+  RMSE_g <- RMSE(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_g,
+                   res=results)))
+  SE_g <- mean(do.call(c, lapply(index, function(ind, res) res[[ind]]$model_params_df$g_SE,
+                    res=results)))
   
   # I'm more interested in predicting ability (theta) but a lot of papers do focus more on parameter retrieval so I would like to at
   # least report the mean and RMSE for those as well. Don't have time for that tonight so TODO
-  ret <- c(bias_Theta=bias_Theta, RMSE_Theta = RMSE_Theta, mean_groupdiff=mean_groupdiff, SE_groupdiff=SE_groupdiff)
+  ret <- c(bias_Theta=bias_Theta, RMSE_Theta = RMSE_Theta, mean_groupdiff=mean_groupdiff, SE_groupdiff=SE_groupdiff, bias_groupdiff=bias_groupdiff,
+           RMSE_groupdiff = RMSE_groupdiff, 
+           bias_a = bias_a, RMSE_a = RMSE_a, SE_a = SE_a, bias_d = bias_d, RMSE_d = RMSE_d, SE_d = SE_d,
+           bias_g = bias_g, RMSE_g = RMSE_g, SE_g = SE_g)
   ret
 }
 
-res <- runSimulation(Design, replications = 5, parallel = T, packages = 'mirt',
-                     generate=Generate, analyse=Analyse, summarise=Summarise)
+res <- runSimulation(Design, replications = 2, parallel = F, packages = 'mirt',
+                     generate=Generate, analyse=Analyse, summarise=Summarise, save_results=F)
 ```
-
 
