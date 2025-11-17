@@ -1,0 +1,40 @@
+---
+title: "Untitled"
+author: "Ben Attaway"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+# Introduction
+Item Response Theory (IRT) models are used extensively in the design and scoring of standardized assessments. Each item in an assessment is modeled as having its own item characteristic curve, which expresses the probability that a respondent with a given latent trait value $\theta$ will respond correctly (in the case of an assessment with correct/incorrect answers, such as an academic test) or choose a particular scale value (as in the case of a psychological assessment with Likert-scale items). The simplest item response model for dichotomous items is the one-parameter logistic (1PL) or Rasch model, which assumes that items vary only in difficulty, the value of $\theta$ at which a respondent has a 50% probability of answering correctly. The two-parameter logistic model (2PL) allows items to additionally vary in discrimination, the slope of the item characteristic curve at its inflection point (de Ayala, 2009). The three-parameter logistic (3PL) model extends the 2PL model by adding a guessing parameter corresponding to the probability that a very low-$\theta$ respondent will answer correctly (the y-intercept of the item characteristic curve), which is particularly relevant for multiple-choice items. There is no consensus on the “best” model to use for large-scale assessments – although more complex models may fit real-world data most closely (see, e.g., Robitsch, 2022), ability estimates become dependent on the sample of individuals taking the assessment, which proponents of the Rasch model argue is an undesirable property (Stemler & Naples, 2021). In practice, large-scale assessments vary in the item response models used: the Programme for International Student Assessment (PISA) uses a one-parameter model (Okubo, 2022, p. 11), while the National Assessment of Educational Progress (NAEP) uses two- or three- parameter models depending on question type (NCES, 2009).
+
+In many cases, it is desirable to create multiple versions of a given assessment rather than administering the same set of items to all test-takers (e.g. to prevent cheating when students will take an exam on different days). In order to estimate all IRT parameters on the same scale, so that estimated ability scores are comparable across versions, it is necessary for some items (referred to as *anchor items*) to appear on multiple versions of the assessment for calibration. It is possible to first estimate parameters for each assessment version before transforming each set of parameters to a common scale (Stocking & Lord, 1983), or to estimate all parameters at once using Maximum Likelihood techniques. Hanson & Béguin (2002) report obtaining parameter estimates with lower RMSE using concurrent estimation in most simulation scenarios tested.
+
+[Existing studies on size of anchor set]
+
+# Methods
+Models were fit using the `mirt` package in R (Chalmers, 2012). `mirt` implements full-information maximum likelihood methods for IRT parameters (Bock & Aiken, 1981; Bock et al., 1988) as an option for model fitting in the presence of missing data. Additionally, the `fscores` function used to produce $\theta$ estimates based on a fitted model is able to produce either point estimates (expected a-posteriori, maximum a-posteriori, or maximum likelihood) with standard errors, or a set of multiply imputed plausible values. There is theoretical justification for assessing the accuracy of both point estimates and plausible values -- the former are needed to assign scale scores to test-takers based on their responses (which may impact their future educational trajectory in the case of state testing or the SAT/ACT exams), while the latter are frequently part of publicly available datasets used to investigate group differences.
+
+# Results
+
+
+# References
+Bock, R. D., & Aitkin, M. (1981). Marginal maximum likelihood estimation of item parameters: Application of an EM algorithm. *Psychometrika, 46*(4), 443-459. https://doi.org/10.1007/BF02293801
+
+Bock, R. D., Gibbons, R., & Muraki, E. (1988). Full-information item factor analysis. *Applied Psychological Measurement, 12*(3), 261-280. https://doi.org/10.1177/014662168801200305
+
+Chalmers, R. P. (2012). mirt: A Multidimensional Item Response Theory Package for the R Environment. Journal of Statistical Software, 48(6), 1–29. https://doi.org/10.18637/jss.v048.i06
+
+de Ayala, R. J. (2009). The theory and practice of item response theory. New York: Guilford Press.
+
+Hanson, B. A., & Béguin, A. A. (2002). Obtaining a common scale for Item Response Theory item parameters using separate versus concurrent estimation in the common-item equating design. Applied Psychological Measurement, 26(1), 3–24. https://doi.org/10.1177/0146621602026001001
+
+National Center for Education Statistics. (2009). NAEP Technical Documentation: Item Scaling Models. https://nces.ed.gov/nationsreportcard/tdw/analysis/scaling_models.aspx
+
+Okubo, T. (2022). Theoretical considerations on scaling methodology in PISA. OECD Education Working Papers, no. 282. https://doi.org/10.1787/c224dbeb-en
+
+Robitzsch, A. (2022). On the choice of the item response model for scaling PISA data: Model selection based on information criteria and quantifying model uncertainty. Entropy, 24(6), 760. https://doi.org/10.3390/e24060760
+
+Stemler, S. E. & Naples, A. (2021). Rasch measurement v. Item Response Theory: Knowing when to cross the line. Practical Assessment, Research, and Evaluation, 26(11). https://doi.org/10.7275/v2gd-4441
+
+Stocking, M. L., & Lord, F. M. (1983). Developing a Common Metric in Item Response Theory. Applied Psychological Measurement, 7(2), 201-210. https://doi.org/10.1177/014662168300700208

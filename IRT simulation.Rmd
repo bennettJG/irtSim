@@ -18,13 +18,20 @@ library(SimDesign)
 
 set.seed(1701)
 ```
+
+# Introduction
+
+Item Response Theory (IRT) models are used extensively in the design and scoring of standardized assessments. Each item in an assessment is modeled as having its own item response function, which expresses the probability that a respondent with a given latent trait value $\theta$ will respond correctly (in the case of an assessment with correct/incorrect answers, such as an academic test) or choose a particular scale value (as in the case of a psychological assessment with Likert-scale items). In the simplest IRT model, the one-parameter logistic (1PL) or Rasch model (Rasch, 1993), items are assumed to vary only in *difficulty*, that is, the value of $\theta$ for which 50% of respondents are give the right answer. The two-parameter logistic (2PL) model additionally allows the *discrimination* of items -- the extent to which high-$\theta$ and low-$\theta$ students' probabilities of responding correctly differ -- to vary. The discrimination parameter corresponds to the maximum slope of the item characteristic curve. The three-parameter logistic (3PL) model extends the 2PL model by adding a *guessing parameter* corresponding to the probability that a very low-$\theta$ respondent will answer correctly (the y-intercept of the item characteristic curve), which is particularly relevant for multiple-choice items.
+
+The formula for the 3PL model is [tktk]. Setting $g=0$ produces the 2PL model, and further setting $a=1$ produces the 1PL model.
+
 NAEP typically aims for a discrimination parameter `a` between 0 and 2 and difficulty `b` between -3 and 3. Guessing probability `c` naturally needs to be between 0 and 1, but realistically we'd expect it to be on the low end of that range (for a five-option question I'd expect 0.2). (https://nces.ed.gov/nationsreportcard/tdw/analysis/scaling_irt.aspx)
 
 Prof. Verkuilen suggested fixing the total test length at 30 or 40 items (so the item bank needs to be longer for a shorter anchor length), and the number of students at 1000 (didn't say per version or total, so I'll do total for now)
 
 ```{r}
 # Adapted from https://philchalmers.github.io/SimDesign/html/04-Auxillary_parameter_recovery.html
-Design <- createDesign(n_anchor = c(3, 5, 10, 15, 20, 40), # setting the anchor to the same number as test items should mean everyone completes everything 
+Design <- createDesign(n_anchor = c(5, 15, 40), # setting the anchor to the same number as test items should mean everyone completes everything 
                        n_test_questions = c(40),
                        n_test_versions = c(2),
                        type = c('2PL'), # Also try 3PL
@@ -65,24 +72,25 @@ Generate <- function(condition, fixed_objects = NULL) {
     a_values <- matrix(rlnorm(n_items, 0, .25)) 
     b_values <- rnorm(n_items, 0, 1)
 
-    intercepts <- numeric(n_items)
+    params <- data.frame()
     for(i in 1:n_items) {
-       intercepts[i] <- traditional2mirt(c('a'=a_values[i], 'b'=b_values[i], 'g'=ifelse(type=='2PL', 0, .2), 'u'=1),
-                                 cls=type)[2]
+       params <- rbind(params, traditional2mirt(c('a'=a_values[i], 'b'=b_values[i], 'g'=ifelse(type=='2PL', 0, .2), 'u'=1),
+                                 cls=type))
     }
-    
+        colnames(params) <- c("a", "d", "g", "u")
+        
     # Wanted to make two groups of students with different ability distributions to look at power to detect differences
     # based on plausible values (which we can get after fitting a model)
     # But it would be simpler to leave this out and just have one group of students
     Theta1 <- matrix(scale(rnorm(n_students_total/2)) - groupdiff/2)
     Theta2 <- matrix(scale(rnorm(n_students_total/2)) + groupdiff/2)
 
-    dat1 <- simdata(a=a_values, d=intercepts, Theta=Theta1, itemtype = type) |> make_missing(n_anchor, n_test_questions, n_test_versions, b_values)
-    dat2 <- simdata(a=a_values, d=intercepts, Theta=Theta2, itemtype = type) |> make_missing(n_anchor, n_test_questions, n_test_versions, b_values)
+    dat1 <- simdata(a=params$a, d=params$d, guess=params$g, Theta=Theta1, itemtype = type) |> make_missing(n_anchor, n_test_questions, n_test_versions, b_values)
+    dat2 <- simdata(a=params$a, d=params$d, guess=params$g, Theta=Theta2, itemtype = type) |> make_missing(n_anchor, n_test_questions, n_test_versions, b_values)
     
     covdata <- data.frame(group = c(rep("Group 1", n_students_total/2), rep("Group 2", n_students_total/2)))
     
-    ret <- list(dat=rbind(dat1, dat2), covdata=covdata, parameters=list(Thetas=rbind(Theta1, Theta2), a=a_values, d=intercepts, groupdiff=groupdiff))
+    ret <- list(dat=rbind(dat1, dat2), covdata=covdata, parameters=list(Thetas=rbind(Theta1, Theta2), a=params$a, b=b_values, intercept=params$d, g=params$g, groupdiff=groupdiff))
     ret
 }
 
@@ -94,7 +102,7 @@ Analyse <- function(condition, dat, fixed_objects = NULL) {
     parameters <- dat$parameters
     n_students_group <- nrow(data)/2
 
-    mod <- mirt(data, 1, itemtype=type, covdata=covdata, SE=T)
+    mod <- mirt(data, 1, itemtype=type, covdata=covdata, SE=T, formula = ~group)
     if(!extract.mirt(mod, 'converged')) {
       print("Did not converge")
       stop('mirt did not converge')
@@ -114,19 +122,20 @@ Analyse <- function(condition, dat, fixed_objects = NULL) {
     par <- lapply(so, function(x) x$coefficients[, 'Estimate'])
     SEpar <- lapply(so, function(x) x$coefficients[, 'Std. Error'])
     pooled <- averageMI(par, SEpar)
-    model_params <- lapply(1:length(parameters$d), function(i) c(mod@ParObjects$pars[[i]]@par, mod@ParObjects$pars[[i]]@SEpar))
+    
+    model_params <- coef(mod, printSE=T, IRTpars=T)
     # Don't need u estimates since not testing 4PL model
-    model_params_df <- data.frame(matrix(unlist(model_params), byrow=T, nrow=length(model_params)))[,c(1:3, 5:7)]
-    colnames(model_params_df) <- c("a_est", "d_est", "g_est", "a_SE", "d_SE", "g_SE")
-    diff_a = model_params_df[,1] - parameters$a
-    diff_d = model_params_df[,2] - parameters$d
-    diff_g = ifelse(type=="2PL", rep(0, length(parameters$d)), model_params_df[,3] - parameters$g)
+    model_params_df <- data.frame(matrix(unlist(model_params), byrow=T, nrow=length(model_params)))[,c(1:6)]
+    colnames(model_params_df) <- c("a_est", "a_SE", "b_est", "b_SE", "g_est", "g_SE")
+    diff_a = model_params_df$a_est - parameters$a
+    diff_b = model_params_df$b_est - parameters$b
+    diff_g = ifelse(type=="2PL", rep(0, length(parameters$d)), model_params_df$g_est - parameters$g)
 
     # return list
     ret <- list(true_parameters=parameters, par_coef = pooled[2,"par"], par_SE = pooled[2, "SEpar"],
                 diff_Theta = c(diff_Theta1, diff_Theta2), pred_theta=pred_theta,
                 model_params_df = model_params_df,
-                diff_a = diff_a, diff_d = diff_d,
+                diff_a = diff_a, diff_b = diff_b,
                 diff_g = diff_g, groupdiff = pooled[2,"par"] - dat$parameters$groupdiff)
     ret
 }
@@ -155,11 +164,11 @@ Summarise <- function(condition, results, fixed_objects = NULL) {
   SE_a <- mean(do.call(c, lapply(index, function(ind, res) res[[ind]]$model_params_df$a_SE,
                     res=results)))
 
-  bias_d <- bias(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_d,
+  bias_b <- bias(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_b,
                    res=results)))
-  RMSE_d <- RMSE(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_d,
+  RMSE_b <- RMSE(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_b,
                    res=results)))
-  SE_d <- mean(do.call(c, lapply(index, function(ind, res) res[[ind]]$model_params_df$d_SE,
+  SE_b <- mean(do.call(c, lapply(index, function(ind, res) res[[ind]]$model_params_df$b_SE,
                     res=results)))
 
   bias_g <- bias(do.call(c, lapply(index, function(ind, res) res[[ind]]$diff_g,
@@ -173,12 +182,15 @@ Summarise <- function(condition, results, fixed_objects = NULL) {
   # least report the mean and RMSE for those as well. Don't have time for that tonight so TODO
   ret <- c(bias_Theta=bias_Theta, RMSE_Theta = RMSE_Theta, mean_groupdiff=mean_groupdiff, SE_groupdiff=SE_groupdiff, bias_groupdiff=bias_groupdiff,
            RMSE_groupdiff = RMSE_groupdiff, 
-           bias_a = bias_a, RMSE_a = RMSE_a, SE_a = SE_a, bias_d = bias_d, RMSE_d = RMSE_d, SE_d = SE_d,
+           bias_a = bias_a, RMSE_a = RMSE_a, SE_a = SE_a, bias_b = bias_b, RMSE_b = RMSE_b, SE_b = SE_b,
            bias_g = bias_g, RMSE_g = RMSE_g, SE_g = SE_g)
   ret
 }
 
-res <- runSimulation(Design, replications = 2, parallel = F, packages = 'mirt',
-                     generate=Generate, analyse=Analyse, summarise=Summarise, save_results=F)
+res <- runSimulation(Design, replications = 5, parallel = F, packages = 'mirt',
+                     generate=Generate, analyse=Analyse, summarise=Summarise, save_results=T)
 ```
 
+# References
+
+Rasch, G. (1993). *Probabilistic models for some intelligence and attainment tests.* MESA Press. (Original work published in 1960.)
