@@ -25,13 +25,14 @@ Prof. Verkuilen suggested fixing the total test length at 30 or 40 items (so the
 
 ```{r}
 # Adapted from https://philchalmers.github.io/SimDesign/html/04-Auxillary_parameter_recovery.html
-Design <- createDesign(n_anchor = c(3, 5, 10, 15, 20, 40), # setting the anchor to the same number as test items should mean everyone completes everything 
+Design <- createDesign(n_anchor = c(3, 5, 10, 15, 40), # setting the anchor to the same number as test items should mean everyone completes everything 
                        n_test_questions = c(40),
-                       n_test_versions = c(2),
+                       assumption = c("Equivalent groups", "NEAT"),
+                       n_test_versions = c(2, 4),
                        type = c('2PL'), # Also try 3PL
-                       groupdiff = c(0, 0.5, 1), # Thought it would be good to see how well we could assess the size of a mean difference
+                       groupdiff = c(0, 0.4), # Thought it would be good to see how well we could assess the size of a mean difference
                        plausible_draws = c(10), # PISA provides 10 plausible values, NAEP provides 20, so those seem like good #s to pick
-                       n_students_total = 1024)
+                       n_students_total = 1000)
 
 make_missing <- function(full_responses, n_anchor, n_test_questions, n_groups, b_values) {
   if (n_anchor == n_test_questions) {
@@ -56,7 +57,7 @@ Generate <- function(condition, fixed_objects = NULL) {
     
     n_items = n_anchor + n_test_versions*(n_test_questions-n_anchor)
 
-    a_values <- matrix(rlnorm(n_items, 0, .25)) 
+    a_values <- matrix(rlnorm(n_items, 0, .25))
     b_values <- rnorm(n_items, 0, 1.15)
 
     params <- data.frame()
@@ -67,11 +68,9 @@ Generate <- function(condition, fixed_objects = NULL) {
     colnames(params) <- c("a", "d", "g", "u")
     params$b <- b_values
         
-    # Wanted to make two groups of students with different ability distributions to look at power to detect differences
-    # based on plausible values (which we can get after fitting a model)
-    # But it would be simpler to leave this out and just have one group of students
-    Theta1 <- matrix(scale(rnorm(n_students_total/2)) - groupdiff/2)
-    Theta2 <- matrix(scale(rnorm(n_students_total/2)) + groupdiff/2)
+    # Wanted to make two groups of students with different ability distributions to look at power to detect differences based on plausible values (which we can get after fitting a model)
+    Theta1 <- matrix(scale(rnorm(n_students_total/2)))
+    Theta2 <- matrix(scale(rnorm(n_students_total/2)) + groupdiff)
 
     # Prof. Verkuilen said to start we should use medium-difficulty items as the anchors, so I'm passing the difficulty parameters and choosing the items
     # with difficulty closest to 0 (the mean value)
@@ -87,12 +86,24 @@ Generate <- function(condition, fixed_objects = NULL) {
       # put the other values back in random order
     
     dat1 <- simdata(a=params$a, d=params$d, guess=params$g, Theta=Theta1, itemtype = type) 
-    dat2 <- simdata(a=params$a, d=params$d, guess=params$g, Theta=Theta2, itemtype = type) 
-    dat <- rbind(dat1, dat2) |> make_missing(n_anchor, n_test_questions, n_test_versions)
+    dat2 <- simdata(a=params$a, d=params$d, guess=params$g, Theta=Theta2, itemtype = type)
+    Thetas <- rbind(Theta1, Theta2)
+    dat <- rbind(dat1, dat2)
+    covdata <- data.frame(group = c(rep("Group 1", n_students_total/2), rep("Group 2", n_students_total/2)))    
+        
+    if (assumption != "NEAT") {
+      # Shuffle rows so that people from groups 1 and 2 are equally likely to get any version
+      Thetas <- cbind(dat, data.frame(Theta = c(Theta1, Theta2), group=covdata$group))
+      Thetas <- Thetas[sample(nrow(Thetas)),]
+      dat <- Thetas[,1:ncol(dat)]
+      rownames(dat) <- NULL
+      covdata$group <- Thetas$group
+      Thetas <- Thetas$Theta
+    }
     
-    covdata <- data.frame(group = c(rep("Group 1", n_students_total/2), rep("Group 2", n_students_total/2)))
-    
-    ret <- list(dat=dat, covdata=covdata, parameters=list(Thetas=rbind(Theta1, Theta2), a=params$a, b=params$b, intercept=params$d, g=params$g, groupdiff=groupdiff))
+    dat <- as.matrix(dat) |> make_missing(n_anchor, n_test_questions, n_test_versions)
+
+    ret <- list(dat=dat, covdata=covdata, parameters=list(Thetas=Thetas, a=params$a, b=params$b, intercept=params$d, g=params$g, groupdiff=groupdiff))
     ret
 }
 
@@ -104,7 +115,11 @@ Analyse <- function(condition, dat, fixed_objects = NULL) {
     parameters <- dat$parameters
     n_students_group <- nrow(data)/2
 
-    mod <- mirt(data, 1, itemtype=type, covdata=covdata, SE=T)
+    if(assumption != "NEAT") {
+      mod <- manageWarnings(mirt(data, 1, itemtype=type, SE=T), warning2error = "Could not invert information matrix; model may not be (empirically) identified.")
+    } else {
+    mod <- manageWarnings(multipleGroup(data, 1, group = covdata$group, SE=T, invariance=c('free_means', 'slopes', 'intercepts'), itemtype=type), warning2error = "Could not invert information matrix; model may not be (empirically) identified.")
+    }
     if(!extract.mirt(mod, 'converged')) {
       print("Did not converge")
       stop('mirt did not converge')
@@ -112,7 +127,7 @@ Analyse <- function(condition, dat, fixed_objects = NULL) {
       print("Fit IRT model")
     }
     
-    pred_theta <- fscores(mod, full.scores=TRUE, plausible.draws = plausible_draws)
+    pred_theta <- fscores(mod, full.scores=TRUE, plausible.draws = plausible_draws, use_dentype_estimate=T)
     
     pred_theta_point <- fscores(mod, full.scores=TRUE, full.scores.SE = TRUE)
     diff_Theta <- pred_theta_point[,1] - parameters$Thetas
@@ -130,6 +145,9 @@ Analyse <- function(condition, dat, fixed_objects = NULL) {
     colnames(model_params_df) <- c("a_est", "a_SE", "b_est", "b_SE", "g_est", "g_SE")
     diff_a = model_params_df$a_est - parameters$a
     diff_b = model_params_df$b_est - parameters$b
+    if(max(abs(model_params_df$b_SE)) > 10) {
+      stop("Item parameters poorly estimated")
+    }
     diff_g = ifelse(type=="2PL", rep(0, length(parameters$d)), model_params_df$g_est - parameters$g)
 
     # return list
