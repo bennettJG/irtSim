@@ -2,7 +2,9 @@
 title: "Anchor Set Size for Concurrent Estimation of Item Response Theory Models"
 author: "Ben Attaway"
 date: "`r Sys.Date()`"
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
 ---
 
 # Introduction
@@ -21,6 +23,75 @@ To assess the efficacy of detecting group differences based on plausible values,
 
 # Results
 
+```{r, fig.asp=1}
+library(tidyverse)
+library(SimDesign)
+
+filenames <- list.files("SimDesign-results_DESKTOP-159RJCF", pattern="*.rds", full.names=TRUE)
+list_results <- lapply(filenames, readRDS)
+diff_Thetas <- list()
+for (i in 1:length(list_results)) {
+  diff_Thetas[[i]] <- do.call(cbind, lapply(1:200, function(j, res) c(res[[j]]$diff_Theta),
+                   res=list_results[[i]]$results))
+}
+
+conditions <- do.call(rbind, lapply(list_results, function(i) data.frame(i$condition))) |>
+  select(n_anchor, assumption, n_test_versions, groupdiff)
+biases <- lapply(diff_Thetas, bias) 
+biases_long <- data.frame(matrix(unlist(biases), nrow=40, byrow=T)) |>
+  cbind(conditions) |> 
+  pivot_longer(starts_with("X"), names_to="iter", values_to="bias")
+
+ggplot(biases_long |> mutate(n_anchor = factor(n_anchor)), aes(x=n_anchor, y=bias)) +
+  facet_wrap(vars(assumption, groupdiff, n_test_versions)) +
+  geom_jitter(alpha=0.2, height=0, color="green") +
+  geom_violin(color="blue", fill="transparent") +
+  stat_summary(color="blue", fun.data="mean_sdl") +
+  theme_bw()
+
+RMSEs <- lapply(diff_Thetas, RMSE) 
+RMSEs <- data.frame(matrix(unlist(RMSEs), nrow=40, byrow=T)) |>
+  cbind(conditions)
+
+ggplot(RMSEs |> pivot_longer(starts_with("X"), names_to="iter", values_to="rmse_Theta") |> mutate(n_anchor = factor(n_anchor)), aes(x=n_anchor, y=rmse_Theta)) +
+  facet_wrap(vars(assumption, groupdiff, n_test_versions)) +
+  geom_jitter(alpha=0.2, height=0, color="green") +
+  geom_violin(color="blue", fill="transparent") +
+  stat_summary(color="blue", fun.data="mean_sdl") +
+  theme_bw()
+
+groupdiffs <- data.frame(matrix(nrow=40, ncol=200))
+for (i in 1:length(list_results)) {
+  groupdiffs[i,] <- do.call(c, lapply(1:200, function(j, res) res[[j]]$groupdiff,
+                   res=list_results[[i]]$results))
+}
+
+groupdiffs <- groupdiffs |>
+  cbind(conditions)
+
+ggplot(groupdiffs |> pivot_longer(starts_with("X"), names_to="iter", values_to="diff") |> mutate(n_anchor = factor(n_anchor)), aes(x=n_anchor, y=diff)) +
+  facet_wrap(vars(assumption, groupdiff, n_test_versions)) +
+  geom_jitter(alpha=0.2, height=0, color="green") +
+  geom_violin(color="blue", fill="transparent") +
+  stat_summary(color="blue", fun.data="mean_sdl") +
+  theme_bw()
+
+theta_corrs <- data.frame(matrix(nrow=40, ncol=200))
+for (i in 1:length(list_results)) {
+  theta_corrs[i,] <- do.call(c, lapply(1:200, function(j, res) cor(c(res[[j]]$pred_theta[,1]), y=c(res[[j]]$true_parameters$Thetas)),
+                   res=list_results[[i]]$results))
+}
+
+theta_corrs <- theta_corrs |>
+  cbind(conditions)
+
+ggplot(theta_corrs |> pivot_longer(starts_with("X"), names_to="iter", values_to="corr") |> mutate(n_anchor = factor(n_anchor)), aes(x=n_anchor, y=corr)) +
+  facet_wrap(vars(assumption, groupdiff, n_test_versions)) +
+  geom_jitter(alpha=0.2, height=0, color="green") +
+  geom_violin(color="blue", fill="transparent") +
+  stat_summary(color="blue", fun.data="mean_sdl") +
+  theme_bw()
+```
 
 # References
 Bock, R. D., & Aitkin, M. (1981). Marginal maximum likelihood estimation of item parameters: Application of an EM algorithm. *Psychometrika, 46*(4), 443-459. https://doi.org/10.1007/BF02293801

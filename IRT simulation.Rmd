@@ -82,9 +82,10 @@ Generate <- function(condition, fixed_objects = NULL) {
       pull(rowname) |>
       as.numeric()
     
-    params <- rbind(params[anchor_values,], params[-anchor_values,])
-      # put the other values back in random order
-    
+    if (n_anchor > 0) {
+      params <- rbind(params[anchor_values,], params[-anchor_values,])
+        # put the other values back in random order
+    }
     dat1 <- simdata(a=params$a, d=params$d, guess=params$g, Theta=Theta1, itemtype = type) 
     dat2 <- simdata(a=params$a, d=params$d, guess=params$g, Theta=Theta2, itemtype = type)
     Thetas <- rbind(Theta1, Theta2)
@@ -116,7 +117,7 @@ Analyse <- function(condition, dat, fixed_objects = NULL) {
     n_students_group <- nrow(data)/2
 
     if(assumption != "NEAT") {
-      mod <- manageWarnings(mirt(data, 1, itemtype=type, SE=T), warning2error = "Could not invert information matrix; model may not be (empirically) identified.")
+      mod <- manageWarnings(mirt(data, 1, itemtype=type, SE=T, dentype="Gaussian", formula=~group, covdata=covdata), warning2error = "Could not invert information matrix; model may not be (empirically) identified.")
     } else {
     mod <- manageWarnings(multipleGroup(data, 1, group = covdata$group, SE=T, invariance=c('free_means', 'slopes', 'intercepts'), itemtype=type), warning2error = "Could not invert information matrix; model may not be (empirically) identified.")
     }
@@ -130,7 +131,7 @@ Analyse <- function(condition, dat, fixed_objects = NULL) {
     pred_theta <- fscores(mod, full.scores=TRUE, plausible.draws = plausible_draws, use_dentype_estimate=T)
     
     pred_theta_point <- fscores(mod, full.scores=TRUE, full.scores.SE = TRUE)
-    diff_Theta <- pred_theta_point[,1] - parameters$Thetas
+    diff_Theta <- unname(c(pred_theta_point[,1])) - parameters$Thetas
     se_Theta <- pred_theta_point[,2]
     
     pvmods <- lapply(pred_theta, function(x, covdata) lm(x ~ covdata$group), covdata=covdata)
@@ -152,10 +153,10 @@ Analyse <- function(condition, dat, fixed_objects = NULL) {
 
     # return list
     ret <- list(true_parameters=parameters, par_coef = pooled[2,"par"], par_SE = pooled[2, "SEpar"],
-                diff_Theta = diff_Theta, pred_theta=pred_theta, se_Theta = se_Theta,
+                diff_Theta = diff_Theta, pred_theta=pred_theta_point, se_Theta = se_Theta,
                 model_params_df = model_params_df,
                 diff_a = diff_a, diff_b = diff_b,
-                diff_g = diff_g, groupdiff = pooled[2,"par"] - dat$parameters$groupdiff)
+                diff_g = diff_g, groupdiff = pooled[2,"par"])
     ret
 }
 Summarise <- function(condition, results, fixed_objects = NULL) {
@@ -169,9 +170,9 @@ Summarise <- function(condition, results, fixed_objects = NULL) {
   SE_Theta <- mean(do.call(c, lapply(index, function(ind, res) res[[ind]]$se_Theta,
                    res=results)))
 
-  bias_groupdiff <- bias(do.call(c, lapply(index, function(ind, res) res[[ind]]$groupdiff,
+  bias_groupdiff <- bias(do.call(c, lapply(index, function(ind, res) res[[ind]]$groupdiff - res[[ind]]$true_parameters$groupdiff,
                    res=results)))
-  RMSE_groupdiff <- RMSE(do.call(c, lapply(index, function(ind, res) res[[ind]]$groupdiff,
+  RMSE_groupdiff <- RMSE(do.call(c, lapply(index, function(ind, res) res[[ind]]$groupdiff - res[[ind]]$true_parameters$groupdiff,
                    res=results)))
 
   SE_groupdiff <- mean(do.call(c, lapply(index, function(ind, res) res[[ind]]$par_SE,
