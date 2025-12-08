@@ -9,8 +9,6 @@ output: pdf_document
 knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE)
 
 library(mirt)
-# devtools::install_github("masurp/ggmirt")
-library(ggmirt)
 library(mice)
 library(tidyverse)
 library(gt)
@@ -28,16 +26,16 @@ Try with sirt, ltm
 ```{r}
 # Adapted from https://philchalmers.github.io/SimDesign/html/04-Auxillary_parameter_recovery.html
 Design <- createDesign(n_anchor = c(3, 5, 10, 15, 30), # setting the anchor to the same number as test items should mean everyone completes everything
-                       n_test_questions = c(40),
+                       n_test_questions = c(30),
                        anchor_type = c("midi", "random", "easy"),
                        assumption = c("Equivalent groups", "NEAT"),
-                       n_test_versions = c(2),
+                       n_test_versions = c(4),
                        type = c('2PL'), # Also try 3PL
                        groupdiff = c(0, 0.4), # Thought it would be good to see how well we could assess the size of a mean difference
                        plausible_draws = c(10), # PISA provides 10 plausible values, NAEP provides 20, so those seem like good #s to pick
                        n_students_total = 1000)
 
-make_missing <- function(full_responses, n_anchor, n_test_questions, n_groups, b_values) {
+make_missing <- function(full_responses, n_anchor, n_test_questions, n_groups) {
   if (n_anchor == n_test_questions) {
     return(full_responses)
   }
@@ -136,7 +134,7 @@ Analyse <- function(condition, dat, fixed_objects = NULL) {
     parameters <- dat$parameters
 
     if(assumption != "NEAT") {
-      mod <- manageWarnings(mirt(data, 1, itemtype=type, SE=T, dentype="Gaussian", formula=~group, covdata=covdata), warning2error = "Could not invert information matrix; model may not be (empirically) identified.")
+      mod <- manageWarnings(mirt(data, 1, itemtype=type, SE=T, dentype="Gaussian"), warning2error = "Could not invert information matrix; model may not be (empirically) identified.")
     } else {
     mod <- manageWarnings(multipleGroup(data, 1, group = covdata$group, SE=T, invariance=c('free_means', 'slopes', 'intercepts'), itemtype=type), warning2error = "Could not invert information matrix; model may not be (empirically) identified.")
     }
@@ -147,9 +145,9 @@ Analyse <- function(condition, dat, fixed_objects = NULL) {
       print("Fit IRT model")
     }
     
-    pred_theta <- fscores(mod, full.scores=TRUE, plausible.draws = plausible_draws, use_dentype_estimate=T)
+    pred_theta <- fscores(mod, full.scores=TRUE, plausible.draws = plausible_draws)
     
-    pred_theta_point <- fscores(mod, full.scores=TRUE, full.scores.SE = TRUE, use_dentype_estimate = (assumption != "NEAT"))
+    pred_theta_point <- fscores(mod, full.scores=TRUE, full.scores.SE = TRUE)
     diff_Theta <- unname(c(pred_theta_point[,1])) - parameters$Thetas
     se_Theta <- pred_theta_point[,2]
     

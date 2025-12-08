@@ -1,12 +1,25 @@
 ---
 title: "Anchor Set Size for Concurrent Estimation of Item Response Theory Models"
-author: "Ben Attaway"
+author: "Ben & Adam"
 date: "`r Sys.Date()`"
 output:
-  html_document:
-    df_print: paged
+  pdf_document:
+    extra_dependencies: ["float"]
+header-includes:
+  \usepackage{float}
+  \floatplacement{figure}{H}
 ---
 
+```{r setup, include=F}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE, fig.width = 6, fig.asp=0.65, fig.pos = "H")
+
+library(tidyverse)
+library(SimDesign)
+library(flextable)
+library(ftExtra)
+
+set_flextable_defaults(align="center", table.layout="autofit", theme_fun="theme_booktabs")
+```
 # Introduction
 Item Response Theory (IRT) models are used extensively in the design and scoring of standardized assessments. Each item in an assessment is modeled as having its own item characteristic curve, which expresses the probability that a respondent with a given latent trait value $\theta$ will respond correctly (in the case of an assessment with correct/incorrect answers, such as an academic test) or choose a particular scale value (as in the case of a psychological assessment with Likert-scale items). The simplest item response model for dichotomous items is the one-parameter logistic (1PL) or Rasch model, which assumes that items vary only in difficulty, the value of $\theta$ at which a respondent has a 50% probability of answering correctly. (This parameter is alternatively described as "location" in some literature, since it describes a specific location on the item characteristic curve.) The two-parameter logistic model (2PL) allows items to additionally vary in discrimination, the slope of the item characteristic curve at its inflection point (de Ayala, 2009). The three-parameter logistic (3PL) model extends the 2PL model by adding a guessing parameter corresponding to the probability that a very low-$\theta$ respondent will answer correctly (the y-intercept of the item characteristic curve), which is particularly relevant for multiple-choice items. There is no consensus on the “best” model to use for large-scale assessments – although more complex models may fit real-world data most closely (see, e.g., Robitsch, 2022), ability estimates become dependent on the sample of individuals taking the assessment, which proponents of the Rasch model argue is an undesirable property (Stemler & Naples, 2021). In practice, large-scale assessments vary in the item response models used: the Programme for International Student Assessment (PISA) uses a one-parameter model (Okubo, 2022, p. 11), while the National Assessment of Educational Progress (NAEP) uses two- or three- parameter models depending on question type (NCES, n.d.-a).
 
@@ -14,174 +27,287 @@ In many cases, it is desirable to create multiple versions of a given assessment
 
 Ideally, assessment designers would choose the lowest number of anchor items needed to obtain accurate parameter estimates, to minimize opportunities for cheating or memorization of answers from a past test version. However, reducing the anchor set too far risks non-identifiability of the IRT model. Some work on anchor set design to date has focused on test linking rather than concurrent calibration (e.g. Vale, 1986; de Gruijter, 1988; Yang & Houang, 1996), but Wingersky et al. (1987) investigated anchor sets of 10, 20, and 40 items and 85 non-anchor items under concurrent calibration (finding, unsurprisingly, that item parameter estimates based on larger estimates were more stable across simulations). García-Pérez et al. (2010) simulated varying anchor set size and criteria used for selection for a shorter test under the graded-response model, which is used for polytomous items. The current study takes a similar approach to identify appropriate anchor set sizes for dichotomous items under the 2PL model, but differs in that the total number of items per test, rather than the total item bank size, is held constant. 
 
+The criteria used for selection of anchor items may also play a role in the efficacy of parameter recovery. Sinharay and Holland (2006a) found that "miditests" -- anchor tests with a smaller spread of item difficulties than the overall test -- correlated more strongly with overall test performance than standard "minitests" selected to reflect the overall distribution of difficulties, which would lead to more effective parameter estimation. In a follow-up study (Sinharay and Holland, 2006b), they found that miditests resulted in slightly lower bias and RMSE in equating tests across two non-equivalent groups, although the impact of anchor selection strategy was smaller than those of overall test length and anchor size.
+
 # Methods
 Models were fit using the `mirt` package in R (Chalmers, 2012). `mirt` implements full-information maximum likelihood methods for IRT parameters (Bock & Aiken, 1981; Bock et al., 1988) as an option for model fitting in the presence of missing data. Additionally, the `fscores` function used to produce $\theta$ estimates based on a fitted model is able to produce either point estimates (expected a-posteriori, maximum a-posteriori, or maximum likelihood) with standard errors, or a set of multiply imputed plausible values. There is theoretical justification for assessing the accuracy of both point estimates and plausible values -- the former are needed to assign scale scores to test-takers based on their responses (which may impact their future educational trajectory in the case of state testing or the SAT/ACT exams), while the latter are frequently part of publicly available datasets used to investigate group differences.
 
-All scenarios tested were based on the 2PL model and used a total test length of 40 items and a total of 1000 test-takers. For all items, discrimination parameters $a$ were drawn from a lognormal distribution with mean 0 and $\sigma$ 0.25, and difficulty $b$ was drawn from $\mathcal{N}(0, 1.15)$. These distributions were chosen so that the majority of $a$ values would fall between 0 and 2 and the majority of $b$ values would fall between -3 and 3, noted to be typical values for NAEP (NCES, n.d.-b).
+All scenarios tested were based on the 2PL model and used a total test length of 30 items, a total of 1000 test-takers, and four test versions (that is, 250 test-takers per version). For all items, discrimination parameters $a$ were drawn from a lognormal distribution with mean 0 and $\sigma$ 0.25, and difficulty $b$ was drawn from $\mathcal{N}(0, 1.15)$. These distributions were chosen so that the majority of $a$ values would fall between 0 and 2 and the majority of $b$ values would fall between -3 and 3, noted to be typical values for NAEP (NCES, n.d.-b).
 
-To assess the efficacy of detecting group differences based on plausible values, two conditions were used for test-taker $\theta$ distribution: One in which all 1000 individuals had values drawn from $\mathcal{N}(0, 1)$, and one in which one group of patients had $\theta ~ \mathcal{N}(0, 1)$ and the other had $\theta ~ \mathcal{N}(0.5, 1)$. The default `mirt` function used to estimate IRT parameters appears to assume an MCAR model where the group of test-takers assigned to each version are drawn from the same distribution; the `multipleGroup` function is considerably slower but can be used to fit a model in which group ability distributions differ across versions.
+To assess the efficacy of detecting group differences based on plausible values, two conditions were used for test-taker $\theta$ distribution: One in which all 1000 individuals had values drawn from $\mathcal{N}(0, 1)$, and one in which half had $\theta \sim \mathcal{N}(0, 1)$ and the other had $\theta \sim \mathcal{N}(0.4, 1)$. In the group difference condition, two of the four test versions were taken by individuals from each of the two distributions. After fitting the IRT model in this condition, ten plausible values were generated for each $\theta$, and used to fit a simple linear regression of group on theta, using the `averageMI` function included with the `mirt` package for pooling results across multiple imputations according to Rubin's rules.
 
-# Results
+The default `mirt` function used to estimate IRT parameters appears to assume an MCAR model where the group of test-takers assigned to each version are drawn from the same distribution; the `multipleGroup` function is considerably slower but can be used to fit a model in which group ability distributions differ across versions. To test the robustness of `mirt` parameter recovery to violations of the equivalent-groups assumption, simulations were run using both `mirt` and `multipleGroup` for each condition. (We omit the `multipleGroup` results for simulations of no group difference, as these results were very similar to the `multipleGroup` results when a group difference was present.)
 
-```{r, fig.asp=1}
-library(tidyverse)
-library(SimDesign)
+Table 1 below summarizes the simulation parameters varied. 100 runs were used for each combination of parameters (5 x 3 x 2 x 2 = 60 total conditions).
 
+```{r conditions, tab.cap="Simulation conditions"}
 filenames <- list.files("2PL", pattern="*.rds", full.names=TRUE)
 list_results <- lapply(filenames, readRDS)
+conditions <- do.call(rbind, lapply(list_results, function(i) data.frame(i$condition))) |>
+  dplyr::select(n_anchor, assumption,  groupdiff, anchor_type)
+
+conditions_table <- tribble(
+  ~`Short Name`, ~Description, ~`Conditions`,
+  "n_anchor", "Number of anchor items\\\n(answered by all respondents)", "**3, 5, 10, 15, 30** (reference condition --\\\nsame assessment for all respondents)",
+  "anchor_type", "Strategy for selecting anchor items\\\nfrom overall item pool", "**midi** (items closest to moderate difficulty)\\\n**easy** (items with lowest difficulty)\\\n**random**",
+  "group_diff", "Difference in mean theta between\\\ntest-takers receiving versions 1 and 2 vs.\\\nversions 3 and 4", "**0, 0.4**",
+  "assumption", "Assumption of `mirt` function\\\nused to estimate parameters", "**Equivalent groups** (`mirt` used)\\\n**NEAT** (`multipleGroup` used)"
+)
+
+knitr::kable(conditions_table)
+```
+
+Note that for the conditions with `anchor_items=30` there should be no difference in performance across anchor selection strategies because in this condition, all students receive all items. In conditions with smaller anchors, the overall item pool from which anchor items are selected is larger, so the difference in difficulty between anchor items is likely to be more pronounced. This should lead to clearer distinctions in the performance of different anchor selection strategies.
+
+```{r}
+load("2PL/res.rda")
+paramrecovery_theme <- theme_classic() +
+  theme(legend.position = "bottom", strip.background.y = element_blank(), strip.background.x = element_rect(fill="transparent"), axis.text.x = element_blank(), strip.text = element_text(size=10), axis.text.y = element_text(angle = 0), axis.ticks.x=element_blank(), plot.title = element_text(hjust=0.5))
+
 diff_Thetas <- list()
 for (i in 1:length(list_results)) {
-  diff_Thetas[[i]] <- do.call(cbind, lapply(1:200, function(j, res) c(res[[j]]$diff_Theta),
+  diff_Thetas[[i]] <- do.call(cbind, lapply(1:100, function(j, res) c(res[[j]]$diff_Theta),
                    res=list_results[[i]]$results))
 }
 
-conditions <- do.call(rbind, lapply(list_results, function(i) data.frame(i$condition))) |>
-  dplyr::select(n_anchor, assumption, n_test_versions, groupdiff)
 biases <- lapply(diff_Thetas, bias) 
-biases_long <- data.frame(matrix(unlist(biases), nrow=40, byrow=T)) |>
-  cbind(conditions) |> 
-  pivot_longer(starts_with("X"), names_to="iter", values_to="bias")
-
-ggplot(biases_long |> mutate(n_anchor = factor(n_anchor)), aes(x=n_anchor, y=bias)) +
-  facet_wrap(vars(assumption, groupdiff, n_test_versions)) +
-  geom_jitter(alpha=0.2, height=0, color="green") +
-  geom_violin(color="blue", fill="transparent") +
-  stat_summary(color="blue", fun.data="mean_sdl") +
-  theme_bw()
-
 RMSEs <- lapply(diff_Thetas, RMSE) 
-RMSEs <- data.frame(matrix(unlist(RMSEs), nrow=40, byrow=T)) |>
-  cbind(conditions)
+RMSEs_long <- data.frame(matrix(unlist(RMSEs), nrow=60, byrow=T)) |>
+  cbind(conditions) |> 
+  pivot_longer(starts_with("X"), names_to="iter", values_to="RMSE")
+metrics_long <- data.frame(matrix(unlist(biases), nrow=60, byrow=T)) |>
+  cbind(conditions) |> 
+  pivot_longer(starts_with("X"), names_to="iter", values_to="bias") |>
+  left_join(RMSEs_long) |>
+  pivot_longer(c("bias", "RMSE"), names_to="statistic", values_to="value")
 
-ggplot(RMSEs |> pivot_longer(starts_with("X"), names_to="iter", values_to="rmse_Theta") |> mutate(n_anchor = factor(n_anchor)), aes(x=n_anchor, y=rmse_Theta)) +
-  facet_wrap(vars(assumption, groupdiff, n_test_versions)) +
-  geom_jitter(alpha=0.2, height=0, color="green") +
-  geom_violin(color="blue", fill="transparent") +
-  stat_summary(color="blue", fun.data="mean_sdl") +
-  theme_bw()
 
-groupdiffs <- data.frame(matrix(nrow=40, ncol=200))
+groupdiffs <- data.frame(matrix(nrow=60, ncol=200))
+groupdiff_SEs <- data.frame(matrix(nrow=60, ncol=200))
 for (i in 1:length(list_results)) {
-  groupdiffs[i,] <- do.call(c, lapply(1:200, function(j, res) res[[j]]$groupdiff,
+  groupdiffs[i,] <- do.call(c, lapply(1:100, function(j, res) res[[j]]$groupdiff,
+                   res=list_results[[i]]$results))
+  groupdiff_SEs[i,] <- do.call(c, lapply(1:100, function(j, res) res[[j]]$par_SE,
                    res=list_results[[i]]$results))
 }
 
+groupdiff_SEs <- groupdiff_SEs |>
+  cbind(conditions) |> 
+  pivot_longer(starts_with("X"), names_to="iter", values_to="SE")
 groupdiffs <- groupdiffs |>
-  cbind(conditions)
+  cbind(conditions) |>
+  pivot_longer(starts_with("X"), names_to="iter", values_to="est") |>
+  left_join(groupdiff_SEs) |>
+  pivot_longer(c("est", "SE"), names_to="statistic", values_to="value")
 
-ggplot(groupdiffs |> pivot_longer(starts_with("X"), names_to="iter", values_to="diff") |> mutate(n_anchor = factor(n_anchor)), aes(x=n_anchor, y=diff)) +
-  facet_wrap(vars(assumption, groupdiff, n_test_versions)) +
-  geom_jitter(alpha=0.2, height=0, color="green") +
-  geom_violin(color="blue", fill="transparent") +
-  stat_summary(color="blue", fun.data="mean_sdl") +
-  theme_bw()
-
-theta_corrs <- data.frame(matrix(nrow=40, ncol=200))
+theta_corrs <- data.frame(matrix(nrow=60, ncol=200))
 for (i in 1:length(list_results)) {
-  theta_corrs[i,] <- do.call(c, lapply(1:200, function(j, res) cor(c(res[[j]]$pred_theta[,1]), y=c(res[[j]]$true_parameters$Theta)),
+  theta_corrs[i,] <- do.call(c, lapply(1:100, function(j, res) cor(c(res[[j]]$pred_theta[,1]), y=c(res[[j]]$true_parameters$Theta)),
                    res=list_results[[i]]$results))
 }
 
 theta_corrs <- theta_corrs |>
   cbind(conditions)
 
-ggplot(theta_corrs |> pivot_longer(starts_with("X"), names_to="iter", values_to="corr") |> mutate(n_anchor = factor(n_anchor)), aes(x=n_anchor, y=corr)) +
-  facet_wrap(vars(assumption, groupdiff, n_test_versions)) +
-  geom_jitter(alpha=0.2, height=0, color="green") +
-  geom_violin(color="blue", fill="transparent") +
-  stat_summary(color="blue", fun.data="mean_sdl") +
-  theme_bw()
-
 diff_as <- list()
 for (i in 1:length(list_results)) {
-  diff_as[[i]] <- do.call(cbind, lapply(1:200, function(j, res) c(res[[j]]$diff_a[1:40]),
+  diff_as[[i]] <- do.call(cbind, lapply(1:100, function(j, res) c(res[[j]]$diff_a),
                    res=list_results[[i]]$results))
 }
 
 abiases <- lapply(diff_as, bias) 
-abiases_long <- data.frame(matrix(unlist(abiases), nrow=40, byrow=T)) |>
+aRMSEs <- lapply(diff_as, RMSE)
+aRMSEs_long <- data.frame(matrix(unlist(aRMSEs), nrow=60, byrow=T)) |>
   cbind(conditions) |> 
-  pivot_longer(starts_with("X"), names_to="iter", values_to="bias")
-
-ggplot(abiases_long |> mutate(n_anchor = factor(n_anchor)), aes(x=n_anchor, y=bias)) +
-  facet_wrap(vars(assumption, groupdiff, n_test_versions)) +
-  geom_jitter(alpha=0.2, height=0, color="green") +
-  geom_violin(color="blue", fill="transparent") +
-  stat_summary(color="blue", fun.data="mean_sdl") +
-  theme_bw()
+  pivot_longer(starts_with("X"), names_to="iter", values_to="RMSE")
+ametrics_long <- data.frame(matrix(unlist(abiases), nrow=60, byrow=T)) |>
+  cbind(conditions) |> 
+  pivot_longer(starts_with("X"), names_to="iter", values_to="bias") |>
+  left_join(aRMSEs_long) |>
+  pivot_longer(c("bias", "RMSE"), names_to="statistic", values_to="value")
 
 diff_bs <- list()
 for (i in 1:length(list_results)) {
-  diff_bs[[i]] <- do.call(cbind, lapply(1:200, function(j, res) c(res[[j]]$diff_b[1:40]),
+  diff_bs[[i]] <- do.call(cbind, lapply(1:100, function(j, res) c(res[[j]]$diff_b),
                    res=list_results[[i]]$results))
 }
 
 bbiases <- lapply(diff_bs, bias) 
-bbiases_long <- data.frame(matrix(unlist(bbiases), nrow=40, byrow=T)) |>
+bRMSEs <- lapply(diff_bs, RMSE)
+bRMSEs_long <- data.frame(matrix(unlist(bRMSEs), nrow=60, byrow=T)) |>
   cbind(conditions) |> 
-  pivot_longer(starts_with("X"), names_to="iter", values_to="bias")
-
-ggplot(bbiases_long |> mutate(n_anchor = factor(n_anchor)), aes(x=n_anchor, y=bias)) +
-  facet_wrap(vars(assumption, groupdiff, n_test_versions)) +
-  geom_jitter(alpha=0.2, height=0, color="green") +
-  geom_violin(color="blue", fill="transparent") +
-  stat_summary(color="blue", fun.data="mean_sdl") +
-  theme_bw()
+  pivot_longer(starts_with("X"), names_to="iter", values_to="RMSE")
+bmetrics_long <- data.frame(matrix(unlist(bbiases), nrow=60, byrow=T)) |>
+  cbind(conditions) |> 
+  pivot_longer(starts_with("X"), names_to="iter", values_to="bias") |>
+  left_join(bRMSEs_long) |>
+  pivot_longer(c("bias", "RMSE"), names_to="statistic", values_to="value")
 
 se_Thetas <- list()
 for (i in 1:length(list_results)) {
-  se_Thetas[[i]] <- do.call(cbind, lapply(1:200, function(j, res) c(res[[j]]$se_Theta),
+  se_Thetas[[i]] <- do.call(cbind, lapply(1:100, function(j, res) c(res[[j]]$se_Theta),
                    res=list_results[[i]]$results))
 }
 
 se_Thetas <- lapply(se_Thetas, colMeans)
-se_Thetas_long <- data.frame(matrix(unlist(se_Thetas), nrow=40, byrow=T)) |>
+se_Thetas_long <- data.frame(matrix(unlist(se_Thetas), nrow=60, byrow=T)) |>
   cbind(conditions) |> 
   pivot_longer(starts_with("X"), names_to="iter", values_to="avg_se_Theta")
+```
+# Results
 
-ggplot(se_Thetas_long |> mutate(n_anchor = factor(n_anchor)), aes(x=n_anchor, y=avg_se_Theta)) +
-  facet_wrap(vars(assumption, groupdiff, n_test_versions), ncol=1, strip.position="right") +
-  geom_jitter(alpha=0.2, height=0, color="green") +
-  geom_violin(color="blue", fill="transparent") +
-  stat_summary(color="blue", fun.data="mean_sdl") +
-  theme_bw()
+## Equivalent Groups
+
+Figures 1-3 below show summary statistics related to parameter recovery for varying anchor set sizes using `mirt` to estimate the 2PL model and obtain theta estimates. For each simulation run, the bias and root mean squared error (RMSE) of estimated values across the 1000 theta parameters, the 30-115 difficulty (a) parameters (more items are needed when the anchor set is smaller, so that all test-takers can receive the same total number of items), and the 30-115 discrimination (b) parameters. Each faintly displayed point indicates the outcome of one of the 100 simulation runs for a condition, while the bolder points (and the numbers above each plot) indicate the average bias/RMSE for the parameter across all 100 runs.
+
+```{r, fig.cap="Theta recovery for equivalent groups"}
+library(patchwork)
+
+plot_bias_rmse <- function(long_data, var_name, res_var_name) {
+  overall_means <- res[,paste0(c("bias_","RMSE_"), res_var_name)]
+  names(overall_means) <- c("bias", "RMSE")
+  overall_means <- overall_means |> cbind(res[,c("n_anchor", "assumption", "groupdiff", "anchor_type")]) |>
+    semi_join(long_data)
+  
+  bias_plot <- long_data |> 
+    filter(statistic=="bias") |>
+    mutate(n_anchor = factor(n_anchor)) |>
+    ggplot(aes(x=anchor_type, y=value, color=anchor_type)) +
+  labs(title=paste(var_name, "parameter recovery")) +
+  facet_grid(cols=vars(n_anchor),
+             scales="free_y", axes="all_x", switch="x", space="free_y") +
+  scale_x_discrete("") +
+  scale_y_continuous("Bias") +
+  geom_jitter(alpha=0.1, height=0) +
+  scale_color_brewer("Anchor type", palette="Dark2") +
+  geom_point(data=overall_means, aes(y=bias)) +
+  geom_text(data=overall_means, show.legend=F, aes(label=round(bias,3), y = max(
+    1.1*max(long_data|>filter(statistic=="bias") |> pull("value")),
+    .95*max(long_data|>filter(statistic=="bias") |> pull("value")))), size=8, size.unit="pt", color="black") +
+  theme_classic() +
+  paramrecovery_theme
+  
+  rmse_plot <- long_data |> 
+    filter(statistic=="RMSE") |>
+    mutate(n_anchor = factor(n_anchor)) |>
+    ggplot(aes(x=anchor_type, y=value, color=anchor_type)) +
+  facet_grid(cols=vars(n_anchor),
+             scales="free_y", axes="all_x", switch="x", space="free_y") +
+  scale_x_discrete("Anchor Size") +
+  scale_y_continuous("RMSE") +
+  geom_jitter(alpha=0.1, height=0) +
+  scale_color_brewer("Anchor type", palette="Dark2") +
+  geom_point(data=overall_means, aes(y=RMSE)) +
+  geom_text(data=overall_means, show.legend=F, aes(label=round(RMSE,3), y = 1.05*quantile(long_data |> filter(statistic=="RMSE") |> pull("value"), 0.95)), size=8, size.unit="pt", color="black") +
+  coord_cartesian(ylim=c(.95*quantile(long_data |> filter(statistic=="RMSE") |> pull("value"), 0.01), 1.05*quantile(long_data |>  filter(statistic=="RMSE") |> pull("value"), 0.99))) +
+  theme_classic() +
+  paramrecovery_theme
+  
+  bias_plot / rmse_plot +
+  plot_layout(guides = 'collect') &
+  theme(legend.position="bottom")
+}
+
+plot_bias_rmse(metrics_long |> filter(groupdiff==0 & assumption=="Equivalent groups"), "Theta", "Theta")
 ```
 
-```{r, fig.asp=1.5, fig.width=6, fig.dpi=300}
-list_point_thetas <- list()
-for (i in 1:length(list_results)) {
-  point_thetas <- data.frame(matrix(nrow=1000, ncol=5))
-  names(point_thetas) <- c("pred", "pred_SE", "true_theta", "n_anchor","condition")
-  results <- list_results[[i]]$results[[1]]
-  point_thetas[,"pred"] <- results$pred_theta[,1]
-  point_thetas[,"pred_SE"] <- results$pred_theta[,2]
-  point_thetas[,"true_theta"] <- c(unlist(results$true_parameters$Thetas))
-  point_thetas[,"n_anchor"] <- rep(list_results[[i]]$condition$n_anchor, 1000)
-  point_thetas[,"condition"] <- rep(
-    paste0(list_results[[i]]$condition$assumption, ", group diff=", list_results[[i]]$condition$groupdiff, ", test versions=", list_results[[i]]$condition$n_test_versions), 1000)
-  list_point_thetas[[i]] <- point_thetas |> arrange(true_theta)
+```{r, fig.cap="Discrimination parameter recovery for equivalent groups"}
+plot_bias_rmse(ametrics_long |> filter(groupdiff==0 & assumption=="Equivalent groups"), "Discrimination", "a")
+```
+
+```{r, fig.cap="Difficulty parameter recovery for equivalent groups"}
+plot_bias_rmse(bmetrics_long |> filter(groupdiff==0 & assumption=="Equivalent groups"), "Difficulty", "b")
+```
+
+Surprisingly, there is very little difference in parameter recovery across anchor set sizes. Across conditions, bias in parameter estimates was extremely low.The RMSE for difficulty parameter estimation appears to improve very slightly as the anchor size increases, but this may simply be noise, as the values for the reference (all items shared) conditions show a similar amount of variance across the three anchor selection categories (which have no impact on the outcome in this condition).
+
+Likewise, anchor selection strategies appear to have little, if any, impact on IRT parameter or theta recovery in the equivalent-groups scenario. It appears possible that selecting the easiest items as anchors results in (slightly) more precisely estimated item difficulty parameters but less precise ability estimates, but this again could be noise. 
+
+As one might expect based on the parameter recovery, estimated differences between groups based on plausible values were very consistent across conditions:
+
+```{r, fig.cap="Group difference estimated from plausible values for equivalent groups"}
+plot_groupdiff <- function(long_data) {
+  overall_means <- groupdiffs |> group_by(anchor_type, n_anchor, statistic, assumption, groupdiff) |>
+    summarize(mean = mean(value)) |>
+    pivot_wider(names_from = statistic, values_from=mean)
+  overall_means <- overall_means |> 
+    semi_join(long_data)
+  
+  est_plot <- long_data |> 
+    filter(statistic=="est") |>
+    mutate(n_anchor = factor(n_anchor)) |>
+    ggplot(aes(x=anchor_type, y=value, color=anchor_type)) +
+  labs(title=paste("Estimated difference between groups")) +
+  facet_grid(cols=vars(n_anchor),
+             scales="free_y", axes="all_x", switch="x", space="free_y") +
+  scale_x_discrete("") +
+  scale_y_continuous("Estimate") +
+  geom_jitter(alpha=0.1, height=0) +
+  scale_color_brewer("Anchor type", palette="Dark2") +
+  geom_point(data=overall_means, aes(y=est)) +
+  geom_text(data=overall_means, show.legend=F, aes(label=round(est,3), y = max(
+    1.1*max(long_data|>filter(statistic=="est") |> pull("value")),
+    .95*max(long_data|>filter(statistic=="est") |> pull("value")))), size=8, size.unit="pt", color="black") +
+  theme_classic() +
+  paramrecovery_theme
+  
+  SE_plot <- long_data |> 
+    filter(statistic=="SE") |>
+    mutate(n_anchor = factor(n_anchor)) |>
+    ggplot(aes(x=anchor_type, y=value, color=anchor_type)) +
+  facet_grid(cols=vars(n_anchor),
+             scales="free_y", axes="all_x", switch="x", space="free_y") +
+    scale_x_discrete("Anchor Size") +
+  scale_y_continuous("Pooled SE") +
+  geom_jitter(alpha=0.1, height=0) +
+  scale_color_brewer("Anchor type", palette="Dark2") +
+  geom_point(data=overall_means, aes(y=SE)) +
+  geom_text(data=overall_means, show.legend=F, aes(label=round(SE,3), y = 1.05*quantile(long_data |> filter(statistic=="SE") |> pull("value"), 0.95)), size=8, size.unit="pt", color="black") +
+  coord_cartesian(ylim=c(.95*quantile(long_data |> filter(statistic=="SE") |> pull("value"), 0.01), 1.05*quantile(long_data |>  filter(statistic=="SE") |> pull("value"), 0.99))) +
+  theme_classic() +
+  paramrecovery_theme
+  
+  est_plot / SE_plot +
+  plot_layout(guides = 'collect') &
+  theme(legend.position="bottom")
 }
 
-point_thetas_large <- bind_rows(list_point_thetas) |> 
-  mutate(n_anchor = as.factor(n_anchor), condition = as.factor(condition)) |> 
-  split(~condition)
+plot_groupdiff(groupdiffs |> filter(assumption=="Equivalent groups" & groupdiff==0))
+```
 
-for(i in 1:length(point_thetas_large)) {
-  png(filename=paste0("figures/theta_point_est/", point_thetas_large[[i]]$condition, ".png"),
-      width = 6, height = 9, res=72,
-    units = "in", pointsize = 12, bg = "white")
-    print(ggplot(point_thetas_large[[i]], aes(x=true_theta, y = pred - true_theta)) +
-      labs(title=point_thetas_large[[i]]$condition) +
-      facet_wrap(vars(n_anchor), ncol=1, strip.position="right", axes="all") +
-      geom_errorbar(aes(ymin = pred - true_theta - pred_SE, ymax=pred - true_theta + pred_SE, x=true_theta), 
-                    color="green", alpha=0.3, linewidth=1) +
-      geom_point(color="darkgreen", size=1, alpha=0.5) +
-      geom_abline(slope=0, intercept=0, color="blue") +
-      theme_bw() +
-      theme(strip.background = element_blank(),
-            strip.text.y= element_text(angle = 0, color = 'blue4', size=16)))
-  dev.off()
-}
+## Non-equivalent groups under equivalence assumption
+
+Next, we examine the scenario in which test-takers taking different versions are drawn from different ability distributions, but the data are analyzed under the assumption of equivalent groups (using `mirt` rather than `multipleGroup`). Ideally analysts would be aware that groups were non-equivalent and use the appropriate method, but it is plausible and worth investigating whether different anchoring strategies vary in their robustness to model misspecification, knowing that they do not appear to vary when the model is correctly specified.
+
+Estimation of difficulty and discrimination parameters remained accurate in this case, but ability parameters were consistently biased downwards (since the `fscores` function in `mirt` estimates ability parameters centered at 0, whereas the average across two groups with means of 0 and 0.4 is 0.2). The variance in estimated $\theta$ was consistent across anchor lengths and selection criteria, as in the case where the equivalent-groups assumption was met.
+
+Where anchor length *did* have an impact, however, was in the group difference estimated after generating plausible $\theta$ values. Specifically, while the difference was somewhat underestimated even in the reference condition of all respondents answering the same 30 questions, smaller anchor sets resulted in notably lower estimates. Further, when anchor sets were small, selecting moderate-difficulty items as a "midi" anchor set considerably outperformed selecting the easiest items, and slightly outperformed random selection of anchor items. As expected, these differences were less noticeable when more items were included (and thus higher variability in difficulties was present) in the anchor set.
+
+```{r, fig.cap="Estimated group differences based on plausible values when group equivalence assumption is violated"}
+plot_groupdiff(groupdiffs |> filter(assumption=="Equivalent groups" & groupdiff==0.4))
+```
+
+## Non-equivalent groups
+
+Finally, we examine the case in which groups are non-equivalent and the difference is accounted for in analysis through the `multipleGroup` function in `mirt`. The results presented below are based on completed simulation runs, but it is important to note that the 3-anchor-item condition frequently resulted in models that failed to converge when the easiest items were chosen as anchors. This is due to the fact that when a large item pool is available, the three easiest items are likely to be answered correctly by nearly all test-takers, and this lack of variability in the anchor responses leads to a non-identified IRT model. Simulation runs for this condition were discarded 186 times due to non-convergence or clearly problematic estimates (item parameters estimated to be many times larger than plausible, such as difficulty or discrimination higher than 10). 
+
+Larger anchor sets and alternate anchor selection strategies also occasionally resulted in model non-convergence, but this did not occur more than 10 times for any other conditions, including where anchor selection used the 3 easiest items but `mirt` was used to estimate model parameters (which led to only 4 failed runs when no group difference was present and 3 when a group difference was present). This may be because the equivalent groups assumption in `mirt` means there is no need for equating between different test versions. Indeed, `mirt` will return parameter estimates even when provided a set of responses with *no* overlap between test versions, which should result in an unidentified imputation model. Presumably, the item parameter estimates in this case are based only on the responses from test-takers who responded to the item.
+
+The simulation results from 100 runs per condition where the estimation model converged are presented below.
+
+```{r, fig.cap="Theta parameter recovery under non-equivalent groups assumption"}
+plot_bias_rmse(metrics_long |> filter(groupdiff==0.4 & assumption=="NEAT"), "Theta", "Theta")
+```
+```{r, fig.cap="Discrimination parameter recovery under non-equivalent groups assumption"}
+plot_bias_rmse(ametrics_long |> filter(groupdiff==0.4 & assumption=="NEAT"), "Discrimination", "a")
+```
+```{r, fig.cap="Difficulty parameter recovery under non-equivalent groups assumption"}
+plot_bias_rmse(bmetrics_long |> filter(groupdiff==0.4 & assumption=="NEAT"), "Difficulty", "b")
+```
+Estimates of the item parameters themselves remained minimally impacted by anchor selection. While there was very little difference in the quality of $\theta$ estimation when averaging across all 100 runs, individual runs showed more variability with smaller anchor sets. With small anchors it was not uncommon to see runs where the bias of $\theta$ estimates was around 0.1. This variability in $\theta$ estimation translated into variability in estimates of group difference: while the regression model returned consistent pooled SEs across conditions, the variance of estimated group differences across runs was higher for smaller anchor conditions, and for easy-items anchors compared to medium-difficulty or random selection.
+
+```{r, fig.cap="Estimated group differences based on plausible values under non-equivalent groups assumption"}
+plot_groupdiff(groupdiffs |> filter(assumption=="NEAT" & groupdiff==0.4))
 ```
 
 # References
@@ -189,35 +315,38 @@ Bock, R. D., & Aitkin, M. (1981). Marginal maximum likelihood estimation of item
 
 Bock, R. D., Gibbons, R., & Muraki, E. (1988). Full-information item factor analysis. *Applied Psychological Measurement, 12*(3), 261-280. https://doi.org/10.1177/014662168801200305
 
-Chalmers, R. P. (2012). mirt: A Multidimensional Item Response Theory Package for the R Environment. Journal of Statistical Software, 48(6), 1–29. https://doi.org/10.18637/jss.v048.i06
+Chalmers, R. P. (2012). mirt: A Multidimensional Item Response Theory Package for the R Environment. *Journal of Statistical Software, 48*(6), 1–29. https://doi.org/10.18637/jss.v048.i06
 
-de Ayala, R. J. (2009). The theory and practice of item response theory. New York: Guilford Press.
+de Ayala, R. J. (2009). *The theory and practice of item response theory.* New York: Guilford Press.
 
-de Gruijter, D. N. M. (1988). Standard errors of item parameter estimates in incomplete designs. Applied Psychological Measurement, 12(2), 109–116. https://doi.org/10.1177/014662168801200201
+de Gruijter, D. N. M. (1988). Standard errors of item parameter estimates in incomplete designs. *Applied Psychological Measurement, 12*(2), 109–116. https://doi.org/10.1177/014662168801200201
 
 García-Pérez, M. A., Alcalà-Quintana, R., & García-Cueto, E. (2010). A Comparison of Anchor-Item Designs for the Concurrent Calibration of Large Banks of Likert-Type Items. *Applied Psychological Measurement, 34*(8), 580–599. https://doi.org/10.1177/0146621609351259
 
-Haebara, T. (1980). Equating logistic ability scales by a weighted least squares method. Japanese Psychological Research, 22(3), 144-149.
+Haebara, T. (1980). Equating logistic ability scales by a weighted least squares method. *Japanese Psychological Research, 22*(3), 144-149.
 
-Hanson, B. A., & Béguin, A. A. (2002). Obtaining a common scale for Item Response Theory item parameters using separate versus concurrent estimation in the common-item equating design. Applied Psychological Measurement, 26(1), 3–24. https://doi.org/10.1177/0146621602026001001
+Hanson, B. A., & Béguin, A. A. (2002). Obtaining a common scale for Item Response Theory item parameters using separate versus concurrent estimation in the common-item equating design. *Applied Psychological Measurement, 26*(1), 3–24. https://doi.org/10.1177/0146621602026001001
 
-Kim, S., & Kolen, M. J. (2007). Effects on Scale Linking of Different Definitions of Criterion Functions for the IRT Characteristic Curve Methods. Journal of Educational and Behavioral Statistics, 32(4), 371-397. https://doi.org/10.3102/1076998607302632
+Kim, S., & Kolen, M. J. (2007). Effects on Scale Linking of Different Definitions of Criterion Functions for the IRT Characteristic Curve Methods. *Journal of Educational and Behavioral Statistics, 32*(4), 371-397. https://doi.org/10.3102/1076998607302632
 
 National Center for Education Statistics. (n.d.-a). NAEP Technical Documentation: Item Scaling Models. Retrieved November 23, 2025 from https://nces.ed.gov/nationsreportcard/tdw/analysis/scaling_models.aspx
 
-National Center for Education Statistics. (n.d.-b). NAEP Technical Documentation: NAEP Assessment IRT Parameters. Retrieved November 23, 2025 from https://nces.ed.gov/nationsreportcard/tdw/analysis/scaling_irt.aspx
+National Center for Education Statistics. (n.d.-b). *NAEP Technical Documentation: NAEP Assessment IRT Parameters.* Retrieved November 23, 2025 from https://nces.ed.gov/nationsreportcard/tdw/analysis/scaling_irt.aspx
 
-Okubo, T. (2022). Theoretical considerations on scaling methodology in PISA. OECD Education Working Papers, no. 282. https://doi.org/10.1787/c224dbeb-en
+Okubo, T. (2022). *Theoretical considerations on scaling methodology in PISA.* OECD Education Working Papers, no. 282. https://doi.org/10.1787/c224dbeb-en
 
-Robitzsch, A. (2022). On the choice of the item response model for scaling PISA data: Model selection based on information criteria and quantifying model uncertainty. Entropy, 24(6), 760. https://doi.org/10.3390/e24060760
+Robitzsch, A. (2022). On the choice of the item response model for scaling PISA data: Model selection based on information criteria and quantifying model uncertainty. *Entropy, 24*(6), 760. https://doi.org/10.3390/e24060760
 
-Stemler, S. E. & Naples, A. (2021). Rasch measurement v. Item Response Theory: Knowing when to cross the line. Practical Assessment, Research, and Evaluation, 26(11). https://doi.org/10.7275/v2gd-4441
+Sinharay, S., & Holland, P. (2006). The correlation between the scores of a test and an anchor test. *ETS Research Report Series, 2006*(1). https://doi.org/10.1002/j.2333-8504.2006.tb02010.x
 
-Stocking, M. L., & Lord, F. M. (1983). Developing a Common Metric in Item Response Theory. Applied Psychological Measurement, 7(2), 201-210. https://doi.org/10.1177/014662168300700208
+Sinharay, S., & Holland, P. (2006b). Choice of anchor test in equating. *ETS Research Report Series, 2006*(2). https://doi.org/10.1002/j.2333-8504.2006.tb02040.x
 
-Vale, C. D. (1986). Linking Item Parameters Onto a Common Scale. Applied Psychological Measurement, 10(4), 333–344. https://doi.org/10.1177/014662168601000402
+Stemler, S. E. & Naples, A. (2021). Rasch measurement v. Item Response Theory: Knowing when to cross the line. *Practical Assessment, Research, and Evaluation, 26*(11). https://doi.org/10.7275/v2gd-4441
 
-Wingersky, M. S., Cook, L. L., & Eignor, D. R. (1987). Specifying the characteristics of linking items used for item response theory calibration. ETS Research Report 87 – 24.
-Princeton, NJ: Educational Testing Service.
+Stocking, M. L., & Lord, F. M. (1983). Developing a Common Metric in Item Response Theory. *Applied Psychological Measurement, 7*(2), 201-210. https://doi.org/10.1177/014662168300700208
 
-Yang, W.-L., & Houang, R. T. (1996). The Effect of Anchor Length and Equating Method on the Accuracy of Test Equating: Comparisons of Linear and IRT-Based Equating Using an Anchor-Item Design. Paper presented at the Annual Meeting of the American Educational Research Association (New York, NY, April 8-12, 1996). https://eric.ed.gov/?id=ED401308
+Vale, C. D. (1986). Linking item parameters onto a common scale. *Applied Psychological Measurement, 10*(4), 333–344. https://doi.org/10.1177/014662168601000402
+
+Wingersky, M. S., Cook, L. L., & Eignor, D. R. (1987). Specifying the characteristics of linking items used for item response theory calibration. *ETS Research Report 1987*(1). https://doi.org/10.1002/j.2330-8516.1987.tb00228.x
+
+Yang, W.-L., & Houang, R. T. (1996). *The Effect of Anchor Length and Equating Method on the Accuracy of Test Equating: Comparisons of Linear and IRT-Based Equating Using an Anchor-Item Design.* Paper presented at the Annual Meeting of the American Educational Research Association (New York, NY, April 8-12, 1996). https://eric.ed.gov/?id=ED401308
