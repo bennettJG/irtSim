@@ -38,8 +38,16 @@ Design <- createDesign(n_anchor = c(3, 5, 10, 15, 30), # setting the anchor to t
 make_missing <- function(full_responses, n_anchor, n_test_questions, n_groups) {
   if (n_anchor == n_test_questions) {
     return(full_responses)
-  }
-  else {
+  } else if (n_anchor==0) {
+    responses_with_missing <- matrix(nrow=nrow(full_responses), ncol=ncol(full_responses))
+    colnames(responses_with_missing) <- colnames(full_responses)
+    for (i in 0:(n_groups - 1)) {
+      row_range <- (1 + i*nrow(full_responses)/n_groups):((i+1)*nrow(full_responses)/n_groups)
+      col_range <- (1+i*(n_test_questions-n_anchor)):((i+1)*(n_test_questions-n_anchor))
+      responses_with_missing[row_range, n_anchor+col_range] <- full_responses[row_range, col_range]
+    }
+    return(responses_with_missing)
+  }  else {
     responses_with_missing <- matrix(nrow=nrow(full_responses), ncol=ncol(full_responses))
     colnames(responses_with_missing) <- colnames(full_responses)
     responses_with_missing[,1:n_anchor] <- full_responses[,1:n_anchor]
@@ -216,8 +224,6 @@ Summarise <- function(condition, results, fixed_objects = NULL) {
   SE_g <- mean(do.call(c, lapply(index, function(ind, res) res[[ind]]$model_params_df$g_SE,
                     res=results)))
   
-  # I'm more interested in predicting ability (theta) but a lot of papers do focus more on parameter retrieval so I would like to at
-  # least report the mean and RMSE for those as well. Don't have time for that tonight so TODO
   ret <- c(bias_Theta=bias_Theta, RMSE_Theta = RMSE_Theta, SE_Theta=SE_Theta, bias_groupdiff=bias_groupdiff,
            RMSE_groupdiff = RMSE_groupdiff, SE_groupdiff = SE_groupdiff,
            bias_a = bias_a, RMSE_a = RMSE_a, SE_a = SE_a, bias_b = bias_b, RMSE_b = RMSE_b, SE_b = SE_b,
@@ -226,5 +232,20 @@ Summarise <- function(condition, results, fixed_objects = NULL) {
 }
 
 res <- runSimulation(Design, replications = 100, parallel = T, packages = 'mirt',
+                     generate=Generate, analyse=Analyse, summarise=Summarise, save_results=T)
+```
+
+```{r}
+# NO anchor set, but still (a good deal of the time, though not always -- had 11 errors before reaching 100 runs)
+Design0 <- createDesign(n_anchor = c(0),
+                       n_test_questions = c(30),
+                       anchor_type = c("random"),
+                       assumption = c("Equivalent groups"),
+                       n_test_versions = c(4),
+                       type = c('2PL'), 
+                       groupdiff = c(0, 0.4), 
+                       plausible_draws = c(10),
+                       n_students_total = 1000)
+res0 <- runSimulation(Design0, replications = 100, parallel = T, packages = 'mirt',
                      generate=Generate, analyse=Analyse, summarise=Summarise, save_results=T)
 ```

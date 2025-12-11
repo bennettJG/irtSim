@@ -17,6 +17,7 @@ library(tidyverse)
 library(SimDesign)
 library(flextable)
 library(ftExtra)
+library(patchwork)
 
 set_flextable_defaults(align="center", table.layout="autofit", theme_fun="theme_booktabs")
 ```
@@ -54,7 +55,7 @@ conditions_table <- tribble(
   "assumption", "Assumption of `mirt` function\\\nused to estimate parameters", "**Equivalent groups** (`mirt` used)\\\n**NEAT** (`multipleGroup` used)"
 )
 
-knitr::kable(conditions_table)
+flextable(conditions_table) |> colformat_md()
 ```
 
 Note that for the conditions with `anchor_items=30` there should be no difference in performance across anchor selection strategies because in this condition, all students receive all items. In conditions with smaller anchors, the overall item pool from which anchor items are selected is larger, so the difference in difficulty between anchor items is likely to be more pronounced. This should lead to clearer distinctions in the performance of different anchor selection strategies.
@@ -153,6 +154,40 @@ se_Thetas <- lapply(se_Thetas, colMeans)
 se_Thetas_long <- data.frame(matrix(unlist(se_Thetas), nrow=60, byrow=T)) |>
   cbind(conditions) |> 
   pivot_longer(starts_with("X"), names_to="iter", values_to="avg_se_Theta")
+
+list_point_thetas <- list()
+for (i in 1:length(list_results)) {
+  point_thetas <- data.frame(matrix(nrow = 1000, ncol = 6))
+  names(point_thetas) <- c(
+    "pred",
+    "pred_SE",
+    "true_theta",
+    "n_anchor",
+    "condition",
+    "group"
+  )
+  results <- list_results[[i]]$results[[100]]
+  point_thetas[, "pred"] <- results$pred_theta[, 1]
+  point_thetas[, "pred_SE"] <- results$pred_theta[, 2]
+  point_thetas[, "true_theta"] <- c(unlist(results$true_parameters$Thetas))
+  point_thetas[, "n_anchor"] <- rep(list_results[[i]]$condition$n_anchor, 1000)
+  point_thetas[, "condition"] <- rep(
+    paste0(
+      list_results[[i]]$condition$assumption,
+      ", group diff=",
+      list_results[[i]]$condition$groupdiff,
+      ", anchor type=",
+      list_results[[i]]$condition$anchor_type
+    ),
+    1000
+  ) 
+  point_thetas[, "group"] = c(rep("Group 1", 500), rep("Group 2", 500))
+  list_point_thetas[[i]] <- point_thetas |> arrange(true_theta)
+}
+
+point_thetas_large <- bind_rows(list_point_thetas) |>
+  mutate(n_anchor = as.factor(n_anchor), condition = as.factor(condition)) |>
+  split(~condition)
 ```
 # Results
 
@@ -167,7 +202,8 @@ plot_bias_rmse <- function(long_data, var_name, res_var_name) {
   overall_means <- res[,paste0(c("bias_","RMSE_"), res_var_name)]
   names(overall_means) <- c("bias", "RMSE")
   overall_means <- overall_means |> cbind(res[,c("n_anchor", "assumption", "groupdiff", "anchor_type")]) |>
-    semi_join(long_data)
+    semi_join(long_data) |>
+    mutate(n_anchor = factor(n_anchor))
   
   bias_plot <- long_data |> 
     filter(statistic=="bias") |>
@@ -198,8 +234,8 @@ plot_bias_rmse <- function(long_data, var_name, res_var_name) {
   geom_jitter(alpha=0.1, height=0) +
   scale_color_brewer("Anchor type", palette="Dark2") +
   geom_point(data=overall_means, aes(y=RMSE)) +
-  geom_text(data=overall_means, show.legend=F, aes(label=round(RMSE,3), y = 1.05*quantile(long_data |> filter(statistic=="RMSE") |> pull("value"), 0.95)), size=8, size.unit="pt", color="black") +
-  coord_cartesian(ylim=c(.95*quantile(long_data |> filter(statistic=="RMSE") |> pull("value"), 0.01), 1.05*quantile(long_data |>  filter(statistic=="RMSE") |> pull("value"), 0.99))) +
+  geom_text(data=overall_means, show.legend=F, aes(label=round(RMSE,3), y = 1.05*quantile(long_data |> filter(statistic=="RMSE") |> pull("value"), 0.99)), size=8, size.unit="pt", color="black") +
+  coord_cartesian(ylim=c(.95*quantile(long_data |> filter(statistic=="RMSE") |> pull("value"), 0.01), 1.1*quantile(long_data |>  filter(statistic=="RMSE") |> pull("value"), 0.99))) +
   theme_classic() +
   paramrecovery_theme
   
@@ -219,9 +255,36 @@ plot_bias_rmse(ametrics_long |> filter(groupdiff==0 & assumption=="Equivalent gr
 plot_bias_rmse(bmetrics_long |> filter(groupdiff==0 & assumption=="Equivalent groups"), "Difficulty", "b")
 ```
 
-Surprisingly, there is very little difference in parameter recovery across anchor set sizes. Across conditions, bias in parameter estimates was extremely low.The RMSE for difficulty parameter estimation appears to improve very slightly as the anchor size increases, but this may simply be noise, as the values for the reference (all items shared) conditions show a similar amount of variance across the three anchor selection categories (which have no impact on the outcome in this condition).
+Surprisingly, there is very little difference in parameter recovery across anchor set sizes. Across conditions, bias in parameter estimates was extremely low. The RMSE for difficulty parameter estimation appears to improve very slightly as the anchor size increases, but is likely only noise, as the values for the reference (all items shared) conditions show a similar amount of variance across the three anchor selection categories (which have no impact on the outcome in this condition).
 
-Likewise, anchor selection strategies appear to have little, if any, impact on IRT parameter or theta recovery in the equivalent-groups scenario. It appears possible that selecting the easiest items as anchors results in (slightly) more precisely estimated item difficulty parameters but less precise ability estimates, but this again could be noise. 
+Likewise, anchor selection strategies appear to have little, if any, impact on IRT parameter or $\theta$ recovery in the equivalent-groups scenario. It appears possible that selecting the easiest items as anchors results in (slightly) more precisely estimated item difficulty parameters but less precise ability estimates, but this again could be noise.
+
+García-Pérez et al. (2010), in their study of anchor design for Likert-scale assessments, similarly observed relatively small differences in RMSE of parameter estimates across anchor sizes (although they found more noticeable differences between different strategies for selecting items to be included in the anchor). They note that summary measures such as RMSE may not accurately reflect the precision of estimates retrieved from a particular design, because the software package they used (`MULTILOG`) appeared at times to estimate parameters on a different scale than that used to generate them, as identifiable by a strong correlation between true and estimated parameters despite differences in magnitude. However, this does not appear to explain the results produced by `mirt`, as the correlations between true and predicted $\theta$ remained comparable (and high) across anchor conditions (see Figure 4 below.)
+
+```{r, fig.cap = "Correlations between true and predicted ability (theta) scores for equivalent groups", fig.asp=0.5}
+theta_corrs_long <- theta_corrs |> 
+    pivot_longer(starts_with("X"), names_to="iter", values_to="corr") |>     mutate(n_anchor = factor(n_anchor))
+
+plot_theta_corrs <- function(theta_corrs_long) {
+  overall_means <- theta_corrs_long |> group_by(n_anchor, anchor_type) |>
+  summarize(mean = round(mean(corr), 3))
+  
+  ggplot(theta_corrs_long, aes(x = anchor_type, y = corr, color=anchor_type)) +
+  labs(title="Correlation of true and predicted theta") +
+  facet_grid(cols=vars(n_anchor),
+             scales="free_y", axes="all_x", switch="x", space="free_y") +
+  scale_x_discrete("") +
+  scale_y_continuous("Correlation") +
+  geom_jitter(alpha=0.1, height=0) +
+  geom_text(data=overall_means, aes(label=mean), show.legend=F, y = max(theta_corrs_long$corr), size=8, size.unit="pt", color="black") +
+  scale_color_brewer("Anchor type", palette="Dark2") +
+  stat_summary(fun.data = "mean_cl_boot") +
+  theme_classic() +
+  paramrecovery_theme
+}
+
+plot_theta_corrs(theta_corrs_long |> filter(assumption=="Equivalent groups" & groupdiff==0))
+```
 
 As one might expect based on the parameter recovery, estimated differences between groups based on plausible values were very consistent across conditions:
 
@@ -279,7 +342,7 @@ plot_groupdiff(groupdiffs |> filter(assumption=="Equivalent groups" & groupdiff=
 
 Next, we examine the scenario in which test-takers taking different versions are drawn from different ability distributions, but the data are analyzed under the assumption of equivalent groups (using `mirt` rather than `multipleGroup`). Ideally analysts would be aware that groups were non-equivalent and use the appropriate method, but it is plausible and worth investigating whether different anchoring strategies vary in their robustness to model misspecification, knowing that they do not appear to vary when the model is correctly specified.
 
-Estimation of difficulty and discrimination parameters remained accurate in this case, but ability parameters were consistently biased downwards (since the `fscores` function in `mirt` estimates ability parameters centered at 0, whereas the average across two groups with means of 0 and 0.4 is 0.2). The variance in estimated $\theta$ was consistent across anchor lengths and selection criteria, as in the case where the equivalent-groups assumption was met.
+Estimation of difficulty and discrimination parameters remained accurate in this case, but ability parameters were consistently biased downwards (since the `fscores` function in `mirt` estimates ability parameters centered at 0, whereas the average across two groups with means of 0 and 0.4 is 0.2). The variance in estimated $\theta$ was consistent across anchor lengths and selection criteria, as in the case where the equivalent-groups assumption was met. Plots are not included here for brevity, but are available at the end of the report.
 
 Where anchor length *did* have an impact, however, was in the group difference estimated after generating plausible $\theta$ values. Specifically, while the difference was somewhat underestimated even in the reference condition of all respondents answering the same 30 questions, smaller anchor sets resulted in notably lower estimates. Further, when anchor sets were small, selecting moderate-difficulty items as a "midi" anchor set considerably outperformed selecting the easiest items, and slightly outperformed random selection of anchor items. As expected, these differences were less noticeable when more items were included (and thus higher variability in difficulties was present) in the anchor set.
 
@@ -304,11 +367,20 @@ plot_bias_rmse(ametrics_long |> filter(groupdiff==0.4 & assumption=="NEAT"), "Di
 ```{r, fig.cap="Difficulty parameter recovery under non-equivalent groups assumption"}
 plot_bias_rmse(bmetrics_long |> filter(groupdiff==0.4 & assumption=="NEAT"), "Difficulty", "b")
 ```
-Estimates of the item parameters themselves remained minimally impacted by anchor selection. While there was very little difference in the quality of $\theta$ estimation when averaging across all 100 runs, individual runs showed more variability with smaller anchor sets. With small anchors it was not uncommon to see runs where the bias of $\theta$ estimates was around 0.1. This variability in $\theta$ estimation translated into variability in estimates of group difference: while the regression model returned consistent pooled SEs across conditions, the variance of estimated group differences across runs was higher for smaller anchor conditions, and for easy-items anchors compared to medium-difficulty or random selection.
+
+Estimates of the item parameters themselves remained minimally impacted by anchor selection. While there was very little difference in the quality of $\theta$ estimation when averaging across all 100 runs, individual runs showed more variability with smaller anchor sets. With small anchors it was not uncommon to see runs where the bias of $\theta$ estimates was around 0.1. This variability in $\theta$ estimation translated into variability in estimates of group difference: while the regression model returned consistent pooled SEs across conditions, the variance of estimated group differences across runs was higher for smaller anchor conditions, and for easy-item anchors compared to medium-difficulty or random selection.
 
 ```{r, fig.cap="Estimated group differences based on plausible values under non-equivalent groups assumption"}
 plot_groupdiff(groupdiffs |> filter(assumption=="NEAT" & groupdiff==0.4))
 ```
+
+# Discussion
+
+Anchor sets as small as 3 items performed surprisingly much better than expected when the assumption of equivalent groups was met. As noted earlier, it seems that the base `mirt` function, somehow, does not require a fully-identified model, given that item parameter and $\theta$ estimates can still be produced when no items are shared between groups of respondents. Presumably, in the no-anchor case item parameters and ability are estimated separately for each disjoint set of questions/respondents. This clearly has lower power as a smaller number of respondents are used for a given question, and may result in parameters being estimated on different scales. However, if the assumption that all respondents are drawn from the same Gaussian ability distribution is true, the estimated $\theta$ values for each group can simply be scaled to have the same mean and variance.
+
+In the case where equivalence between groups is assumed by `mirt` but the assumption is violated by the data, item parameters are consistently biased (the $\theta$ distribution returned is centered at 0, while the ground truth in this simulation was that half of the test-takers were drawn from a Gaussian distribution centered at 0.4. That is, "0" on the theta scale returned by `mirt` corresponds to 0.2, the mean value across all groups, on the "true" scale). Plausible values generated from the estimations returned by `mirt` in this case will underestimate the difference between groups more severely when the anchor set is smaller, and this underestimation is more severe when anchor sets contain the easiest available items than randomly selected items, while "midi" anchors comprising the items closest to moderate difficulty perform best. This is consistent with previous findings in support of miditests (Sinharay & Holland, 2006a,b) and should be considered by test designers, especially in cases where the number of anchor items needs to be kept low.
+
+When a non-equivalent groups with anchor test (NEAT) analysis is used, $\theta$ recovery is less reliable with smaller anchors -- while results are not consistently biased upwards or downwards across runs, the variability across runs is higher with smaller anchors. Easy-item anchors performed especially poorly, not only in terms of being less reliable when they did converge, but very frequently failing to produce a convergent model at all due to the extremely low amount of information obtainable from a set of questions that are consistently answered correctly. While this simulation used the easiest items to construct anchors, using the most difficult items would cause exactly the same issue (as the anchor items would virtually always be answered incorrectly).
 
 # References
 Bock, R. D., & Aitkin, M. (1981). Marginal maximum likelihood estimation of item parameters: Application of an EM algorithm. *Psychometrika, 46*(4), 443-459. https://doi.org/10.1007/BF02293801
@@ -337,7 +409,7 @@ Okubo, T. (2022). *Theoretical considerations on scaling methodology in PISA.* O
 
 Robitzsch, A. (2022). On the choice of the item response model for scaling PISA data: Model selection based on information criteria and quantifying model uncertainty. *Entropy, 24*(6), 760. https://doi.org/10.3390/e24060760
 
-Sinharay, S., & Holland, P. (2006). The correlation between the scores of a test and an anchor test. *ETS Research Report Series, 2006*(1). https://doi.org/10.1002/j.2333-8504.2006.tb02010.x
+Sinharay, S., & Holland, P. (2006a). The correlation between the scores of a test and an anchor test. *ETS Research Report Series, 2006*(1). https://doi.org/10.1002/j.2333-8504.2006.tb02010.x
 
 Sinharay, S., & Holland, P. (2006b). Choice of anchor test in equating. *ETS Research Report Series, 2006*(2). https://doi.org/10.1002/j.2333-8504.2006.tb02040.x
 
@@ -350,3 +422,41 @@ Vale, C. D. (1986). Linking item parameters onto a common scale. *Applied Psycho
 Wingersky, M. S., Cook, L. L., & Eignor, D. R. (1987). Specifying the characteristics of linking items used for item response theory calibration. *ETS Research Report 1987*(1). https://doi.org/10.1002/j.2330-8516.1987.tb00228.x
 
 Yang, W.-L., & Houang, R. T. (1996). *The Effect of Anchor Length and Equating Method on the Accuracy of Test Equating: Comparisons of Linear and IRT-Based Equating Using an Anchor-Item Design.* Paper presented at the Annual Meeting of the American Educational Research Association (New York, NY, April 8-12, 1996). https://eric.ed.gov/?id=ED401308
+
+\newpage
+
+# Appendix
+
+R code used to generate the simulation data is available at [https://github.com/bennettJG/irtSim/blob/main/IRT%20simulation.Rmd].
+
+## Additional figures
+
+```{r, fig.cap="Theta recovery when group equivalence assumption is violated"}
+plot_bias_rmse(
+  metrics_long |> filter(groupdiff == 0.4 & assumption == "Equivalent groups"),
+  "Theta",
+  "Theta"
+)
+```
+```{r, fig.cap="Discrimination parameter recovery when group equivalence assumption is violated"}
+plot_bias_rmse(
+  ametrics_long |> filter(groupdiff == 0.4 & assumption == "Equivalent groups"),
+  "Discrimination",
+  "a"
+)
+```
+```{r, fig.cap="Difficulty parameter recovery when group equivalence assumption is violated"}
+plot_bias_rmse(
+  bmetrics_long |> filter(groupdiff == 0.4 & assumption == "Equivalent groups"),
+  "Difficulty",
+  "b"
+)
+```
+
+```{r, fig.asp=0.5, fig.cap="Correlation of true and predicted theta when group equivalence assumption is violated"}
+plot_theta_corrs(theta_corrs_long |> filter(assumption=="Equivalent groups" & groupdiff==0.4))
+```
+
+```{r, fig.asp=0.5, fig.cap="Correlation of true and predicted theta when group equivalence assumption is violated"}
+plot_theta_corrs(theta_corrs_long |> filter(assumption=="NEAT" & groupdiff==0.4))
+```
